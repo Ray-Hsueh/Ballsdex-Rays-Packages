@@ -4,6 +4,8 @@ from discord import app_commands
 from typing import Optional
 import asyncio
 from ballsdex.core.models import GuildConfig
+from ballsdex.settings import settings
+from ballsdex.core.utils.utils import is_staff
 
 class Broadcast(commands.Cog):
     def __init__(self, bot):
@@ -18,8 +20,8 @@ class Broadcast(commands.Cog):
     @app_commands.command(name="broadcast", description="廣播訊息到所有球生成頻道")
     @app_commands.default_permissions(administrator=True)
     async def broadcast(self, interaction: discord.Interaction, message: str):
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("您需要管理員權限才能使用此命令。")
+        if not is_staff(interaction):
+            await interaction.response.send_message("您需要捷運球管理員權限才能使用此命令。")
             return
 
         await interaction.response.send_message("開始廣播訊息...")
@@ -63,8 +65,8 @@ class Broadcast(commands.Cog):
     @app_commands.command(name="list_broadcast_channels", description="列出所有球生成頻道")
     @app_commands.default_permissions(administrator=True)
     async def list_broadcast_channels(self, interaction: discord.Interaction):
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("您需要管理員權限才能使用此命令。")
+        if not is_staff(interaction):
+            await interaction.response.send_message("您需要捷運球管理員權限才能使用此命令。")
             return
 
         channels = await self.get_broadcast_channels()
