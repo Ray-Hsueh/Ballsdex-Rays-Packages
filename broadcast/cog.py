@@ -221,4 +221,62 @@ class Broadcast(commands.Cog):
         except Exception as e:
             logger.error(f"Error in list_broadcast_channels: {str(e)}")
             logger.error(traceback.format_exc())
+            await interaction.response.send_message("執行命令時發生錯誤，請稍後再試。")
+
+    @app_commands.command(name="broadcast", description="向所有球生成頻道發送廣播訊息")
+    @app_commands.default_permissions(administrator=True)
+    async def broadcast(self, interaction: discord.Interaction, message: str):
+        """向所有球生成頻道發送廣播訊息"""
+        if not is_staff(interaction):
+            await interaction.response.send_message("您需要捷運球管理員權限才能使用此命令。")
+            return
+
+        try:
+            channels = await self.get_broadcast_channels()
+            if not channels:
+                await interaction.response.send_message("目前沒有配置任何球生成頻道。")
+                return
+
+            await interaction.response.send_message("開始廣播訊息...")
+            
+            success_count = 0
+            fail_count = 0
+            failed_channels = []
+            
+            # 創建公告訊息
+            broadcast_message = (
+                "🔔 **系統公告** 🔔\n"
+                "------------------------\n"
+                f"{message}\n"
+                "------------------------\n"
+                f"*由 {interaction.user.name} 發送*"
+            )
+            
+            for channel_id in channels:
+                try:
+                    channel = self.bot.get_channel(channel_id)
+                    if channel:
+                        await channel.send(broadcast_message)
+                        success_count += 1
+                    else:
+                        fail_count += 1
+                        failed_channels.append(f"未知頻道 (ID: {channel_id})")
+                except Exception as e:
+                    logger.error(f"Error broadcasting to channel {channel_id}: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    fail_count += 1
+                    if channel:
+                        failed_channels.append(f"{channel.guild.name} - #{channel.name}")
+                    else:
+                        failed_channels.append(f"未知頻道 (ID: {channel_id})")
+            
+            result_message = f"廣播完成！\n成功發送: {success_count} 個頻道\n失敗: {fail_count} 個頻道"
+            if failed_channels:
+                result_message += "\n\n失敗的頻道：\n" + "\n".join(failed_channels)
+            
+            await interaction.followup.send(result_message)
+                
+        except Exception as e:
+            logger.error(f"Error in broadcast: {str(e)}")
+            logger.error(traceback.format_exc())
             await interaction.response.send_message("執行命令時發生錯誤，請稍後再試。") 
