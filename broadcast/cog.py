@@ -11,20 +11,17 @@ import traceback
 import math
 import logging
 
-# 設置日誌
-logging.basicConfig(level=logging.ERROR)  # 改為只顯示錯誤訊息
+logging.basicConfig(level=logging.ERROR)
 logger = logging.getLogger(__name__)
 
 class Broadcast(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.pages = {}  # 用於存儲分頁資訊
+        self.pages = {}
 
     async def cog_load(self):
-        """當 cog 載入時執行"""
-        # 確保機器人已準備好
+        """Runs when cog loads"""
         await self.bot.wait_until_ready()
-        # 不需要預先獲取成員，因為我們會在需要時才獲取
         pass
 
     async def get_broadcast_channels(self):
@@ -39,14 +36,12 @@ class Broadcast(commands.Cog):
             return set()
 
     async def get_member_count(self, guild):
-        """獲取伺服器成員數"""
+        """Number of Acquired Server Members"""
         try:
-            # 確保我們有權限獲取成員列表
             if not guild.me.guild_permissions.view_channel:
                 logger.warning(f"No permission to view channel in guild {guild.name}")
                 return 0
                 
-            # 直接使用 guild.member_count
             return guild.member_count
                 
         except Exception as e:
@@ -55,25 +50,23 @@ class Broadcast(commands.Cog):
             return 0
 
     def create_embed(self, channel_list, total_stats, page, total_pages):
-        """創建 embed 訊息"""
+        """Create embed message"""
         try:
             embed = discord.Embed(
-                title="球生成頻道列表",
+                title="Ball generating channel list",
                 color=discord.Color.blue(),
                 timestamp=datetime.now(timezone.utc)
             )
             
-            # 添加總體統計
             embed.add_field(
-                name="總體統計",
+                name="Overall Statistics",
                 value=(
-                    f"總頻道數：{total_stats['total_channels']} 個\n"
-                    f"總成員數：{total_stats['total_members']:,} 人"
+                    f"Total number of channels:{total_stats['total_channels']}\n"
+                    f"Total number of members:{total_stats['total_members']:,}"
                 ),
                 inline=False
             )
             
-            # 添加當前頁的頻道列表
             for channel_info in channel_list:
                 embed.add_field(
                     name=channel_info['name'],
@@ -81,7 +74,7 @@ class Broadcast(commands.Cog):
                     inline=False
                 )
             
-            embed.set_footer(text=f"第 {page}/{total_pages} 頁")
+            embed.set_footer(text=f"Page {page}/{total_pages}")
             return embed
         except Exception as e:
             logger.error(f"Error creating embed: {str(e)}")
@@ -97,21 +90,20 @@ class Broadcast(commands.Cog):
             self.current_page = 1
             self.total_pages = math.ceil(len(channel_list) / 5)
             
-            # 更新按鈕狀態
             self.update_buttons()
             
         def update_buttons(self):
             self.previous_page.disabled = self.current_page <= 1
             self.next_page.disabled = self.current_page >= self.total_pages
             
-        @discord.ui.button(label="上一頁", style=discord.ButtonStyle.primary)
+        @discord.ui.button(label="Previous page", style=discord.ButtonStyle.primary)
         async def previous_page(self, interaction: discord.Interaction, button: discord.ui.Button):
             if self.current_page > 1:
                 self.current_page -= 1
                 self.update_buttons()
                 await self.update_message(interaction)
                 
-        @discord.ui.button(label="下一頁", style=discord.ButtonStyle.primary)
+        @discord.ui.button(label="Next Page", style=discord.ButtonStyle.primary)
         async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
             if self.current_page < self.total_pages:
                 self.current_page += 1
@@ -126,20 +118,20 @@ class Broadcast(commands.Cog):
             embed = self.cog.create_embed(current_channels, self.total_stats, self.current_page, self.total_pages)
             await interaction.response.edit_message(embed=embed, view=self)
 
-    @app_commands.command(name="list_broadcast_channels", description="列出所有球生成頻道")
+    @app_commands.command(name="list_broadcast_channels", description="List all ball generating channels")
     @app_commands.default_permissions(administrator=True)
     async def list_broadcast_channels(self, interaction: discord.Interaction):
         if not is_staff(interaction):
-            await interaction.response.send_message("您需要捷運球管理員權限才能使用此命令。")
+            await interaction.response.send_message("You will need the Ball Administrator privileges to use this command.")
             return
 
         try:
             channels = await self.get_broadcast_channels()
             if not channels:
-                await interaction.response.send_message("目前沒有配置任何球生成頻道。")
+                await interaction.response.send_message("There are currently no ball generating channels configured.")
                 return
 
-            await interaction.response.send_message("正在統計伺服器資訊，請稍候...")
+            await interaction.response.send_message("Please wait while the server information is being counted...")
             
             channel_list = []
             total_stats = {
@@ -155,7 +147,7 @@ class Broadcast(commands.Cog):
                     if not channel:
                         logger.warning(f"Channel {channel_id} not found")
                         channel_list.append({
-                            'name': "未知頻道",
+                            'name': "Unknown Channel",
                             'value': f"ID: {channel_id}"
                         })
                         continue
@@ -164,8 +156,8 @@ class Broadcast(commands.Cog):
                     if not guild:
                         logger.warning(f"Guild not found for channel {channel_id}")
                         channel_list.append({
-                            'name': "未知伺服器",
-                            'value': f"頻道 ID: {channel_id}"
+                            'name': "Unknown Server",
+                            'value': f"Channel ID: {channel_id}"
                         })
                         continue
                         
@@ -177,46 +169,42 @@ class Broadcast(commands.Cog):
                     channel_list.append({
                         'name': f"**{guild.name}**",
                         'value': (
-                            f"└ 頻道：#{channel.name} (`{channel.id}`)\n"
-                            f"└ 伺服器 ID：`{guild.id}`\n"
-                            f"└ 成員：{member_count:,} 人"
+                            f"└ Channel: #{channel.name} (`{channel.id}`)\n"
+                            f"└ Server ID: `{guild.id}`\n"
+                            f"└ Number of Members: {member_count:,}"
                         )
                     })
 
-                    # 檢查最近的捕獲記錄
                     total_catches = await BallInstance.filter(server_id=guild.id).count()
-                    if total_catches >= 20:  # 只有當總捕獲數量大於等於20時才檢查
+                    if total_catches >= 20:
                         recent_catches = await BallInstance.filter(
                             server_id=guild.id
                         ).order_by("-catch_date").limit(10).prefetch_related("player")
 
                         if recent_catches:
-                            # 檢查是否有同一個用戶捕獲了所有球
                             unique_catchers = len(set(ball.player.discord_id for ball in recent_catches))
                             if unique_catchers == 1:
                                 player = recent_catches[0].player
-                                channel_list[-1]['value'] += f"\n└ ⚠️ **最近10個球都由 {player} 捕獲**"
+                                channel_list[-1]['value'] += f"\n└ ⚠️ **The last 10 balls have all been caught by {player} **"
 
                 except Exception as e:
                     logger.error(f"Error processing channel {channel_id}: {str(e)}")
                     logger.error(traceback.format_exc())
                     channel_list.append({
-                        'name': "錯誤頻道",
+                        'name': "Error Channel",
                         'value': f"ID: {channel_id}"
                     })
 
             if not channel_list:
-                await interaction.followup.send("無法獲取任何頻道資訊。")
+                await interaction.followup.send("No channel information is available.")
                 return
 
             try:
-                # 分頁處理
                 CHANNELS_PER_PAGE = 5
                 total_pages = math.ceil(len(channel_list) / CHANNELS_PER_PAGE)
                 
                 logger.info(f"Creating pagination with {total_pages} pages")
                 
-                # 創建第一頁
                 current_page = 1
                 start_idx = (current_page - 1) * CHANNELS_PER_PAGE
                 end_idx = start_idx + CHANNELS_PER_PAGE
@@ -224,49 +212,46 @@ class Broadcast(commands.Cog):
                 
                 embed = self.create_embed(current_channels, total_stats, current_page, total_pages)
                 
-                # 創建分頁視圖
                 view = self.PaginationView(self, channel_list, total_stats)
                 
-                # 發送訊息
                 await interaction.followup.send(embed=embed, view=view)
                     
             except Exception as e:
                 logger.error(f"Error sending channel list: {str(e)}")
                 logger.error(traceback.format_exc())
-                await interaction.followup.send("處理頻道列表時發生錯誤，請稍後再試。")
+                await interaction.followup.send("An error occurred while processing the channel list, please try again later.")
                 
         except Exception as e:
             logger.error(f"Error in list_broadcast_channels: {str(e)}")
             logger.error(traceback.format_exc())
-            await interaction.response.send_message("執行命令時發生錯誤，請稍後再試。")
+            await interaction.response.send_message("An error occurred while executing the command, please try again later.")
 
-    @app_commands.command(name="broadcast", description="向所有球生成頻道發送廣播訊息")
+    @app_commands.command(name="broadcast", description="Send broadcast messages to all ball-generating channels")
     @app_commands.default_permissions(administrator=True)
     async def broadcast(self, interaction: discord.Interaction, message: str):
-        """向所有球生成頻道發送廣播訊息"""
+        """Send broadcast messages to all ball-generating channels"""
         if not is_staff(interaction):
-            await interaction.response.send_message("您需要捷運球管理員權限才能使用此命令。")
+            await interaction.response.send_message("You will need the Ball Administrator privileges to use this command.")
             return
 
         try:
             channels = await self.get_broadcast_channels()
             if not channels:
-                await interaction.response.send_message("目前沒有配置任何球生成頻道。")
+                await interaction.response.send_message("There are currently no ball generating channels configured.")
                 return
 
-            await interaction.response.send_message("開始廣播訊息...")
+            await interaction.response.send_message("Start broadcasting messages...")
             
             success_count = 0
             fail_count = 0
             failed_channels = []
             
-            # 創建公告訊息
             broadcast_message = (
-                "🔔 **系統公告** 🔔\n"
+                "🔔 **System Announcement** 🔔\n"
                 "------------------------\n"
                 f"{message}\n"
                 "------------------------\n"
-                f"*由 {interaction.user.name} 發送*"
+                f"*Sent by {interaction.user.name}*"
             )
             
             for channel_id in channels:
@@ -277,7 +262,7 @@ class Broadcast(commands.Cog):
                         success_count += 1
                     else:
                         fail_count += 1
-                        failed_channels.append(f"未知頻道 (ID: {channel_id})")
+                        failed_channels.append(f"Unknown Channel (ID: {channel_id})")
                 except Exception as e:
                     logger.error(f"Error broadcasting to channel {channel_id}: {str(e)}")
                     logger.error(traceback.format_exc())
@@ -285,15 +270,15 @@ class Broadcast(commands.Cog):
                     if channel:
                         failed_channels.append(f"{channel.guild.name} - #{channel.name}")
                     else:
-                        failed_channels.append(f"未知頻道 (ID: {channel_id})")
+                        failed_channels.append(f"Unknown Channel (ID: {channel_id})")
             
-            result_message = f"廣播完成！\n成功發送: {success_count} 個頻道\n失敗: {fail_count} 個頻道"
+            result_message = f"Broadcast completed!\nSuccessfully sent: {success_count} channels\nFailure to send: {fail_count} channels"
             if failed_channels:
-                result_message += "\n\n失敗的頻道：\n" + "\n".join(failed_channels)
+                result_message += "\n\nThe Failure Channel:\n" + "\n".join(failed_channels)
             
             await interaction.followup.send(result_message)
                 
         except Exception as e:
             logger.error(f"Error in broadcast: {str(e)}")
             logger.error(traceback.format_exc())
-            await interaction.response.send_message("執行命令時發生錯誤，請稍後再試。") 
+            await interaction.response.send_message("An error occurred while executing the command, please try again later.") 
