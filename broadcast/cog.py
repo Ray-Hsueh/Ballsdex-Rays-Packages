@@ -3,7 +3,7 @@ from discord.ext import commands
 from discord import app_commands
 from typing import Optional
 import asyncio
-from ballsdex.core.models import GuildConfig
+from ballsdex.core.models import GuildConfig, BallInstance
 from ballsdex.settings import settings
 from ballsdex.core.utils.utils import is_staff
 from datetime import datetime, timedelta, timezone
@@ -12,7 +12,7 @@ import math
 import logging
 
 # 設置日誌
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.ERROR)  # 改為只顯示錯誤訊息
 logger = logging.getLogger(__name__)
 
 class Broadcast(commands.Cog):
@@ -24,20 +24,14 @@ class Broadcast(commands.Cog):
         """當 cog 載入時執行"""
         # 確保機器人已準備好
         await self.bot.wait_until_ready()
-        # 為所有伺服器獲取成員
-        for guild in self.bot.guilds:
-            try:
-                await guild.fetch_members()
-                logger.info(f"Fetched members for guild {guild.name}")
-            except Exception as e:
-                logger.error(f"Error fetching members for guild {guild.name}: {str(e)}")
+        # 不需要預先獲取成員，因為我們會在需要時才獲取
+        pass
 
     async def get_broadcast_channels(self):
         try:
             channels = set()
             async for config in GuildConfig.filter(enabled=True, spawn_channel__isnull=False):
                 channels.add(config.spawn_channel)
-            logger.info(f"Found {len(channels)} broadcast channels")
             return channels
         except Exception as e:
             logger.error(f"Error getting broadcast channels: {str(e)}")
@@ -49,13 +43,12 @@ class Broadcast(commands.Cog):
         try:
             # 確保我們有權限獲取成員列表
             if not guild.me.guild_permissions.view_channel:
-                logger.warning(f"No permission to view members in guild {guild.name}")
+                logger.warning(f"No permission to view channel in guild {guild.name}")
                 return 0
                 
             # 直接使用 guild.member_count
-            member_count = guild.member_count
-            logger.info(f"Found {member_count} members in guild {guild.name}")
-            return member_count
+            return guild.member_count
+                
         except Exception as e:
             logger.error(f"Error in get_member_count: {str(e)}")
             logger.error(traceback.format_exc())
@@ -159,27 +152,51 @@ class Broadcast(commands.Cog):
             for channel_id in channels:
                 try:
                     channel = self.bot.get_channel(channel_id)
-                    if channel:
-                        guild = channel.guild
-                        logger.info(f"Processing channel {channel.name} in guild {guild.name}")
-                        
-                        member_count = await self.get_member_count(guild)
-                        total_stats['total_members'] += member_count
-                        
-                        channel_list.append({
-                            'name': f"**{guild.name}**",
-                            'value': (
-                                f"└ 頻道：#{channel.name} (`{channel.id}`)\n"
-                                f"└ 伺服器 ID：`{guild.id}`\n"
-                                f"└ 成員：{member_count:,} 人"
-                            )
-                        })
-                    else:
+                    if not channel:
                         logger.warning(f"Channel {channel_id} not found")
                         channel_list.append({
                             'name': "未知頻道",
                             'value': f"ID: {channel_id}"
                         })
+                        continue
+                        
+                    guild = channel.guild
+                    if not guild:
+                        logger.warning(f"Guild not found for channel {channel_id}")
+                        channel_list.append({
+                            'name': "未知伺服器",
+                            'value': f"頻道 ID: {channel_id}"
+                        })
+                        continue
+                        
+                    logger.info(f"Processing channel {channel.name} in guild {guild.name}")
+                    
+                    member_count = await self.get_member_count(guild)
+                    total_stats['total_members'] += member_count
+                    
+                    channel_list.append({
+                        'name': f"**{guild.name}**",
+                        'value': (
+                            f"└ 頻道：#{channel.name} (`{channel.id}`)\n"
+                            f"└ 伺服器 ID：`{guild.id}`\n"
+                            f"└ 成員：{member_count:,} 人"
+                        )
+                    })
+
+                    # 檢查最近的捕獲記錄
+                    total_catches = await BallInstance.filter(server_id=guild.id).count()
+                    if total_catches >= 20:  # 只有當總捕獲數量大於等於20時才檢查
+                        recent_catches = await BallInstance.filter(
+                            server_id=guild.id
+                        ).order_by("-catch_date").limit(10).prefetch_related("player")
+
+                        if recent_catches:
+                            # 檢查是否有同一個用戶捕獲了所有球
+                            unique_catchers = len(set(ball.player.discord_id for ball in recent_catches))
+                            if unique_catchers == 1:
+                                player = recent_catches[0].player
+                                channel_list[-1]['value'] += f"\n└ ⚠️ **最近10個球都由 {player} 捕獲**"
+
                 except Exception as e:
                     logger.error(f"Error processing channel {channel_id}: {str(e)}")
                     logger.error(traceback.format_exc())
