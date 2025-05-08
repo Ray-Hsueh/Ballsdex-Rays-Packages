@@ -1,0 +1,21 @@
+{
+  "123456": {
+    "user_id": 123456789,
+    "user_name": "sample_user",
+    "type": "Suggestion",
+    "type_value": "suggestion",
+    "content": "Great feature!",
+    "time": "2024-03-20T10:40:40.587609"
+  },
+  "234567": {
+    "user_id": 987654321,
+    "user_name": "another_user",
+    "type": "Violation Report",
+    "type_value": "violation",
+    "content": "Test report",
+    "time": "2024-03-20T10:44:39.058760",
+    "replied": true,
+    "reply_time": "2024-03-20T10:45:10.597469",
+    "reply_by": "admin_user"
+  }
+}
