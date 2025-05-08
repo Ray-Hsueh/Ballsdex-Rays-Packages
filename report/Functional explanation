@@ -1,0 +1,11 @@
+A package for sending and managing user reports, including bug reports, suggestions, and violation reports.
+
+   - Open `cog.py`
+   - Replace `REPORT_CHANNEL_ID` with your report channel ID
+   - Replace `REPORT_GUILD_ID` with your server ID
+The point of the above action is to have a space for a similar record, even though the complete record will remain in the file. But you can view it in Discord.
+
+## Commands
+
+- `/report` - Submit a new report
+- `/reply_report` - Admin command to reply to reports 
