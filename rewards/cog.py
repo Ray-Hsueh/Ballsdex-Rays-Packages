@@ -22,20 +22,134 @@ class PendingReward:
         self.reward_info = reward_info
         self.expiry_time = expiry_time
 
+class RewardClaimView(discord.ui.View):
+    def __init__(self, reward_manager, user_id: int, reward_info: Dict[str, Any], expiry_time: datetime):
+        super().__init__(timeout=None)
+        self.reward_manager = reward_manager
+        self.user_id = user_id
+        self.reward_info = reward_info
+        self.expiry_time = expiry_time
+        self.message = None
+
+    @discord.ui.button(label="Claim Reward", style=discord.ButtonStyle.green)
+    async def claim_reward(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This is not your reward!", ephemeral=True)
+            return
+
+        if datetime.now() > self.expiry_time:
+            embed = discord.Embed(
+                title="⏰ Reward Expired",
+                description=f"This reward has exceeded the 24-hour claim period!\n"
+                           f"Reward Type: {self.reward_info['type']}\n"
+                           f"Reward Content: {self.reward_info['description']}",
+                color=discord.Color.red()
+            )
+            await interaction.message.edit(embed=embed, view=None)
+            await interaction.response.send_message("This reward has expired!", ephemeral=True)
+            return
+
+        await interaction.response.defer(thinking=True)
+
+        try:
+            try:
+                player = await PlayerModel.get(discord_id=interaction.user.id)
+            except Exception as e:
+                print(f"Error getting player data: {str(e)}")
+                await interaction.followup.send("Unable to get player data, please make sure you have started the game!", ephemeral=True)
+                return
+            
+            try:
+                if self.reward_info.get("specific_balls"):
+                    ball_id = random.choice(self.reward_info["specific_balls"])
+                    ball = await Ball.get(id=ball_id)
+                elif self.reward_info.get("rarity_range"):
+                    min_rarity, max_rarity = self.reward_info["rarity_range"]
+                    available_balls = await Ball.filter(rarity__gte=min_rarity, rarity__lte=max_rarity)
+                    if not available_balls:
+                        await interaction.followup.send("Unable to generate balls matching the criteria!", ephemeral=True)
+                        return
+                    ball = random.choice(available_balls)
+                else:
+                    all_balls = await Ball.all()
+                    if not all_balls:
+                        await interaction.followup.send("Unable to generate reward ball, please try again later!", ephemeral=True)
+                        return
+                    ball = random.choice(all_balls)
+            except Exception as e:
+                print(f"Error generating ball: {str(e)}")
+                await interaction.followup.send("Error generating reward ball, please try again later!", ephemeral=True)
+                return
+            
+            try:
+                instance = await BallInstance.create(
+                    ball=ball,
+                    player=player,
+                    attack_bonus=random.randint(-5, 5),
+                    health_bonus=random.randint(-5, 5),
+                )
+            except Exception as e:
+                print(f"Error creating ball instance: {str(e)}")
+                await interaction.followup.send("Error creating reward ball, please try again later!", ephemeral=True)
+                return
+            
+            try:
+                if interaction.user.id in self.reward_manager.pending_rewards:
+                    del self.reward_manager.pending_rewards[interaction.user.id]
+                    self.reward_manager.save_pending_rewards()
+            except Exception as e:
+                print(f"Error removing pending reward: {str(e)}")
+            
+            try:
+                embed = discord.Embed(
+                    title="✅ Reward Claimed",
+                    description=f"You have successfully claimed the reward!\n"
+                               f"Reward Type: {self.reward_info['type']}\n"
+                               f"Reward Content: {self.reward_info['description']}\n"
+                               f"You received: {ball.country} (ATK:{instance.attack} HP:{instance.health})",
+                    color=discord.Color.green()
+                )
+                await interaction.message.edit(embed=embed, view=None)
+            except Exception as e:
+                print(f"Error updating message content: {str(e)}")
+            
+            try:
+                await interaction.followup.send(
+                    f"🎉 Congratulations on receiving the reward!\n"
+                    f"You received: {ball.country} (ATK:{instance.attack} HP:{instance.health})"
+                )
+            except Exception as e:
+                print(f"Error sending reward message: {str(e)}")
+            
+        except Exception as e:
+            print(f"Unexpected error during reward distribution: {str(e)}")
+            await interaction.followup.send("Error occurred while distributing reward, please try again later! If the problem persists, please contact an administrator.", ephemeral=True)
+
+    async def on_timeout(self):
+        embed = discord.Embed(
+            title="⏰ Reward Expired",
+            description=f"This reward has exceeded the 24-hour claim period!\n"
+                       f"Reward Type: {self.reward_info['type']}\n"
+                       f"Reward Content: {self.reward_info['description']}",
+            color=discord.Color.red()
+        )
+        try:
+            await self.message.edit(embed=embed, view=None)
+        except:
+            pass
+
 class RewardManager:
     def __init__(self):
-        # Ensure rewards folder exists
         rewards_dir = os.path.dirname(PENDING_REWARDS_FILE)
         if not os.path.exists(rewards_dir):
             os.makedirs(rewards_dir)
         self.pending_rewards = self.load_pending_rewards()
-        self.confirmation_timeout = 86400  # 24 hours
+        self.confirmation_timeout = 86400
         
     def load_pending_rewards(self):
         if os.path.exists(PENDING_REWARDS_FILE):
             with open(PENDING_REWARDS_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            # Convert back to PendingReward object
             result = {}
             for uid, info in data.items():
                 result[int(uid)] = PendingReward(
@@ -58,29 +172,32 @@ class RewardManager:
 
     async def send_reward_confirmation(self, user: discord.User, reward_info: Dict[str, Any]) -> bool:
         try:
-            await user.send(
-                f"🎁 You have a new reward to claim!\n"
-                f"Reward type: {reward_info['type']}\n"
-                f"Reward details: {reward_info['description']}\n"
-                f"Please use the `/rewards claim` command within 24 hours to claim your reward."
-            )
             expiry_time = datetime.now() + timedelta(seconds=self.confirmation_timeout)
+            
+            view = RewardClaimView(self, user.id, reward_info, expiry_time)
+            embed = discord.Embed(
+                title="🎁 New Reward Notification",
+                description=f"You have a new reward to claim!\n"
+                           f"Reward Type: {reward_info['type']}\n"
+                           f"Reward Content: {reward_info['description']}\n"
+                           f"Please click the button below to claim within 24 hours.",
+                color=discord.Color.blue()
+            )
+            message = await user.send(embed=embed, view=view)
+            
             self.pending_rewards[user.id] = PendingReward(user.id, reward_info, expiry_time)
             self.save_pending_rewards()
+            
+            view.message = message
+            
             return True
         except discord.Forbidden:
-            return False  # Unable to send private message
-            
+            return False
+        except Exception as e:
+            print(f"Error distributing reward: {str(e)}")
+            return False
+
     async def check_pending_reward(self, user_id: int) -> Optional[Dict[str, Any]]:
-        """
-        Check if a user has pending rewards to confirm
-        
-        Args:
-            user_id: User ID
-            
-        Returns:
-            Optional[Dict[str, Any]]: Reward information, returns None if none
-        """
         if user_id not in self.pending_rewards:
             return None
             
@@ -103,9 +220,6 @@ class RewardManager:
         reward_count: int = 1,
         interaction: Optional[discord.Interaction] = None
     ) -> Dict[str, Any]:
-        """
-        Distribute rewards to specified users, distribute in batches asynchronously and report progress in real-time
-        """
         results = {
             "total_users": 0,
             "notified_users": 0,
@@ -113,7 +227,6 @@ class RewardManager:
         }
         progress_message = None
         batch_size = 10
-        # If no target users are specified, distribute to all players
         if not target_users:
             bot_id = bot.user.id
             players = await PlayerModel.all()
@@ -157,10 +270,6 @@ class RewardManager:
         return results
 
 class Rewards(commands.GroupCog, group_name="rewards"):
-    """
-    Reward system related commands.
-    """
-    
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.reward_manager = RewardManager()
@@ -187,51 +296,25 @@ class Rewards(commands.GroupCog, group_name="rewards"):
         reward_type: str,
         reward_description: str,
         reward_count: int = 1,
-        economy_type: Optional[str] = None,
-        regime_type: Optional[str] = None,
+        station_type: Optional[str] = None,
+        line_type: Optional[str] = None,
         min_rarity: Optional[int] = None,
         max_rarity: Optional[int] = None,
         target_role: Optional[discord.Role] = None,
         target_user_ids: Optional[str] = None
     ):
-        """
-        Distribute rewards to specified users.
-        
-        Parameters
-        ----------
-        reward_type: str
-            Reward type
-        reward_description: str
-            Reward description
-        reward_count: int
-            Number of rewards each user receives
-        economy_type: Optional[str]
-            Economy type (automatically retrieves all economy names)
-        regime_type: Optional[str]
-            Regime type (automatically retrieves all regime names)
-        min_rarity: Optional[int]
-            Minimum rarity
-        max_rarity: Optional[int]
-            Maximum rarity
-        target_role: Optional[discord.Role]
-            Target role (if specified, only sends to users with that role)
-        target_user_ids: Optional[str]
-            Target user IDs (can enter multiple IDs, separated by commas or spaces, takes precedence over target_role)
-        """
         await interaction.response.defer(thinking=True)
         
-        # Check reward count
         if reward_count < 1:
             await interaction.followup.send("Reward count must be greater than 0!", ephemeral=True)
             return
         if reward_count > 10:
-            await interaction.followup.send("You can only distribute up to 10 rewards at a time!", ephemeral=True)
+            await interaction.followup.send("Maximum 10 rewards can be distributed at once!", ephemeral=True)
             return
             
-        # Check rarity range
         rarity_range = None
         if (min_rarity is not None and max_rarity is None) or (min_rarity is None and max_rarity is not None):
-            await interaction.followup.send("Please provide both minimum and maximum rarity!", ephemeral=True)
+            await interaction.followup.send("Please fill in both minimum and maximum rarity!", ephemeral=True)
             return
         if min_rarity is not None and max_rarity is not None:
             if min_rarity > max_rarity:
@@ -239,10 +322,8 @@ class Rewards(commands.GroupCog, group_name="rewards"):
                 return
             rarity_range = (min_rarity, max_rarity)
             
-        # Parse target user IDs
         target_users = None
         if target_user_ids:
-            # Support comma or space separated
             id_list = [i.strip() for i in target_user_ids.replace(',', ' ').split() if i.strip().isdigit()]
             if not id_list:
                 await interaction.followup.send("Please enter valid user IDs!", ephemeral=True)
@@ -263,21 +344,18 @@ class Rewards(commands.GroupCog, group_name="rewards"):
         elif target_role:
             target_users = target_role.members
             
-        # Filter available balls based on selected economy or regime
         available_balls = None
-        if economy_type:
-            available_balls = await Ball.filter(economy__name=economy_type)
+        if station_type:
+            available_balls = await Ball.filter(economy__name=station_type)
             if not available_balls:
-                await interaction.followup.send(f"No balls found for economy type {economy_type}!", ephemeral=True)
+                await interaction.followup.send(f"No balls found for {station_type} category!", ephemeral=True)
                 return
-        elif regime_type:
-            available_balls = await Ball.filter(regime__name=regime_type)
+        elif line_type:
+            available_balls = await Ball.filter(regime__name=line_type)
             if not available_balls:
-                await interaction.followup.send(f"No balls found for regime type {regime_type}!", ephemeral=True)
+                await interaction.followup.send(f"No balls found for {line_type} line!", ephemeral=True)
                 return
-        # If neither is selected, available_balls remains None, representing random
         
-        # Distribute rewards
         results = await self.reward_manager.distribute_rewards(
             self.bot,
             reward_type,
@@ -289,69 +367,13 @@ class Rewards(commands.GroupCog, group_name="rewards"):
             interaction=interaction
         )
         
-        # Send result statistics
         await interaction.followup.send(
-            f"🎁 Reward distribution complete!\n"
+            f"🎁 Reward distribution completed!\n"
             f"Total users: {results['total_users']}\n"
             f"Notified: {results['notified_users']}\n"
             f"Failed: {results['failed_users']}\n"
-            f"Reward count per user: {reward_count}"
+            f"Rewards per user: {reward_count}"
         )
 
-    distribute.autocomplete("economy_type")(station_type_autocomplete)
-    distribute.autocomplete("regime_type")(line_type_autocomplete)
-
-    @app_commands.command()
-    async def claim(self, interaction: discord.Interaction):
-        """
-        Claim pending rewards to confirm.
-        """
-        # Check if there are pending rewards to confirm
-        reward_info = await self.reward_manager.check_pending_reward(interaction.user.id)
-        if not reward_info:
-            await interaction.response.send_message("You currently have no pending rewards!", ephemeral=True)
-            return
-            
-        await interaction.response.defer(thinking=True)
-        
-        try:
-            # Get user's Player instance
-            player = await PlayerModel.get(discord_id=interaction.user.id)
-            
-            # Generate ball based on reward type
-            if reward_info.get("specific_balls"):
-                ball_id = random.choice(reward_info["specific_balls"])
-                ball = await Ball.get(id=ball_id)
-            elif reward_info.get("rarity_range"):
-                # Randomly select ball based on rarity range
-                min_rarity, max_rarity = reward_info["rarity_range"]
-                available_balls = await Ball.filter(rarity__gte=min_rarity, rarity__lte=max_rarity)
-                if not available_balls:
-                    await interaction.followup.send("Unable to generate a ball that meets the criteria!", ephemeral=True)
-                    return
-                ball = random.choice(available_balls)
-            else:
-                # Use original random generation method
-                ball = await BallSpawnView.get_random(self.bot)
-            
-            # Create ball instance
-            instance = await BallInstance.create(
-                ball=ball,
-                player=player,
-                attack_bonus=random.randint(-5, 5),
-                health_bonus=random.randint(-5, 5),
-            )
-            
-            # Remove pending rewards
-            del self.reward_manager.pending_rewards[interaction.user.id]
-            self.reward_manager.save_pending_rewards()
-            
-            # Send reward message
-            await interaction.followup.send(
-                f"🎉 Congratulations!\n"
-                f"You received: {ball.country} (ATK:{instance.attack} HP:{instance.health})"
-            )
-            
-        except Exception as e:
-            print(f"Error while distributing reward: {str(e)}")
-            await interaction.followup.send("An error occurred while distributing the reward. Please try again later!", ephemeral=True) 
+    distribute.autocomplete("station_type")(station_type_autocomplete)
+    distribute.autocomplete("line_type")(line_type_autocomplete)
