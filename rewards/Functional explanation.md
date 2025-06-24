@@ -1,4 +1,4 @@
-This package provides a reward distribution system for a Discord bot.
+# This package provides a reward distribution system for a Discord bot.
 
 ## Features
 - Administrators can batch distribute rewards to selected users based on economy type, regime type, rarity, and other criteria.
@@ -10,5 +10,5 @@ This package provides a reward distribution system for a Discord bot.
 
 ## User Experience
 - When a reward is distributed, users will receive a private message notification (if possible) informing them about the reward type and details.
-- Users can click the button below to view and claim their pending rewards. If there are no pending rewards, they will see a message indicating that there are no rewards to claim.
+- Users can click the button below to view and claim their pending rewards.
 - After claiming, users will receive a confirmation message showing the reward they received.
