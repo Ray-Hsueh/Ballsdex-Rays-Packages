@@ -44,6 +44,10 @@ class RewardClaimView(discord.ui.View):
             await interaction.response.send_message("You have already claimed this reward!", ephemeral=True)
             return
 
+        if interaction.user.id in self.reward_manager.bot.blacklist:
+            await interaction.response.send_message("Blacklisted users cannot claim rewards.", ephemeral=True)
+            return
+
         if datetime.now() > self.expiry_time:
             embed = discord.Embed(
                 title="⏰ Reward Expired",
@@ -66,7 +70,7 @@ class RewardClaimView(discord.ui.View):
                 player = await PlayerModel.get(discord_id=interaction.user.id)
             except Exception as e:
                 print(f"Error getting player data: {str(e)}")
-                await interaction.followup.send("Unable to get player data, please make sure you have started the game!", ephemeral=True)
+                await interaction.followup.send("Unable to get player data. Please ensure you have started the game!", ephemeral=True)
                 return
             
             try:
@@ -121,7 +125,7 @@ class RewardClaimView(discord.ui.View):
                     balls_info.append(f"{emoji}{ball.country} (ATK:{instance.attack} HP:{instance.health})")
             except Exception as e:
                 print(f"Error generating ball: {str(e)}")
-                await interaction.followup.send("Error generating reward ball, please try again later!", ephemeral=True)
+                await interaction.followup.send("Error generating reward ball. Please try again later!", ephemeral=True)
                 return
             
             self.claimed = True
@@ -150,8 +154,8 @@ class RewardClaimView(discord.ui.View):
             except Exception as e:
                 print(f"Error sending reward message: {str(e)}")
         except Exception as e:
-            print(f"Unexpected error during reward distribution: {str(e)}")
-            await interaction.followup.send("Error occurred while distributing reward, please try again later! If the problem persists, please contact an administrator.", ephemeral=True)
+            print(f"Unexpected error while distributing reward: {str(e)}")
+            await interaction.followup.send("Error occurred while distributing reward. Please try again later! If the problem persists, contact an administrator.", ephemeral=True)
 
     async def on_timeout(self):
         if not self.claimed:
@@ -225,7 +229,7 @@ class RewardManager:
             await interaction.channel.send(f'⚠️ | Could not distribute rewards to {user.id} {user.name} as they have their DM closed')
             return False
         except Exception as e:
-            await interaction.channel.send(f"Error distributing reward: {str(e)}")
+            await interaction.channel.send(f"Error occurred while distributing reward: {str(e)}")
             return False
 
     async def check_pending_reward(self, user_id: int) -> Optional[Dict[str, Any]]:
@@ -306,11 +310,9 @@ class Rewards(commands.GroupCog, group_name="rewards"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.reward_manager = RewardManager(bot)
-        self.bot.loop.create_task(self.restore_reward_views())
+        self.bot.loop.create_task(self.check_reward_removal())
         
-    async def restore_reward_views(self):
-        await self.bot.wait_until_ready()
-        
+    async def check_reward_removal(self):
         pending_rewards_copy = dict(self.reward_manager.pending_rewards)
         expired_rewards = []
         
@@ -319,53 +321,20 @@ class Rewards(commands.GroupCog, group_name="rewards"):
                 expired_rewards.append(user_id)
                 continue
                 
-            try:
-                user = self.bot.get_user(user_id)
-                if not user:
-                    user = await self.bot.fetch_user(user_id)
-                    
-                if user:
-                    view = RewardClaimView(
-                        self.reward_manager,
-                        user_id,
-                        reward.reward_info,
-                        reward.expiry_time
-                    )
-                    
-                    embed = discord.Embed(
-                        title="🎁 Reward Notification",
-                        description=f"You have a pending reward to claim!\n"
-                                   f"Reward Type: {reward.reward_info['type']}\n"
-                                   f"Reward Content: {reward.reward_info['description']}\n"
-                                   f"Please click the button below to claim your reward within 24 hours.",
-                        color=discord.Color.blue()
-                    )
-                    
-                    try:
-                        message = await user.send(embed=embed, view=view)
-                        view.message = message
-                    except discord.Forbidden:
-                        expired_rewards.append(user_id)
-                    except Exception as e:
-                        print(f"Error resending reward message: {str(e)}")
-                        
-            except Exception as e:
-                print(f"Error processing reward for user {user_id}: {str(e)}")
-        
         for user_id in expired_rewards:
             if user_id in self.reward_manager.pending_rewards:
                 del self.reward_manager.pending_rewards[user_id]
                 
         self.reward_manager.save_pending_rewards()
         
-    async def station_type_autocomplete(self, interaction: discord.Interaction, current: str):
+    async def economy_type_autocomplete(self, interaction: discord.Interaction, current: str):
         economies = await Economy.all()
         return [
             discord.app_commands.Choice(name=e.name, value=e.name)
             for e in economies if current.lower() in e.name.lower()
         ][:25]
 
-    async def line_type_autocomplete(self, interaction: discord.Interaction, current: str):
+    async def regime_type_autocomplete(self, interaction: discord.Interaction, current: str):
         regimes = await Regime.all()
         return [
             discord.app_commands.Choice(name=r.name, value=r.name)
@@ -394,8 +363,8 @@ class Rewards(commands.GroupCog, group_name="rewards"):
         reward_type: str,
         reward_description: str,
         reward_count: int = 1,
-        station_type: Optional[str] = None,
-        line_type: Optional[str] = None,
+        economy_type: Optional[str] = None,
+        regime_type: Optional[str] = None,
         specific_ball: Optional[str] = None,
         min_rarity: Optional[int] = None,
         max_rarity: Optional[int] = None,
@@ -403,6 +372,34 @@ class Rewards(commands.GroupCog, group_name="rewards"):
         target_user_ids: Optional[str] = None,
         special_event: Optional[SpecialTransform] = None
     ):
+        """
+        Distribute rewards to specified users.
+        
+        Parameters
+        ----------
+        reward_type: str
+            Type of reward
+        reward_description: str
+            Description of reward
+        reward_count: int
+            Number of rewards per user
+        economy_type: Optional[str]
+            Economy type (auto-fetches all economy names)
+        regime_type: Optional[str]
+            Regime type (auto-fetches all regime names)
+        specific_ball: Optional[str]
+            Specific ball type (auto-fetches all ball names)
+        min_rarity: Optional[int]
+            Minimum rarity
+        max_rarity: Optional[int]
+            Maximum rarity
+        target_role: Optional[discord.Role]
+            Target role (if specified, only sends to users with this role)
+        target_user_ids: Optional[str]
+            Target user IDs (can input multiple IDs, separated by commas or spaces, takes priority over target_role)
+        special_event: Optional[SpecialTransform]
+            Special event (if specified, reward balls will have special event background)
+        """
         await interaction.response.defer(thinking=True)
         
         if reward_count < 1:
@@ -448,18 +445,18 @@ class Rewards(commands.GroupCog, group_name="rewards"):
         if specific_ball:
             ball = await Ball.get_or_none(country=specific_ball)
             if not ball:
-                await interaction.followup.send(f"Ball not found: {specific_ball}!", ephemeral=True)
+                await interaction.followup.send(f"Ball type not found: {specific_ball}!", ephemeral=True)
                 return
             available_balls = [ball]
-        elif station_type:
-            available_balls = await Ball.filter(economy__name=station_type)
+        elif economy_type:
+            available_balls = await Ball.filter(economy__name=economy_type)
             if not available_balls:
-                await interaction.followup.send(f"No balls found in {station_type} category!", ephemeral=True)
+                await interaction.followup.send(f"No balls found for economy type: {economy_type}!", ephemeral=True)
                 return
-        elif line_type:
-            available_balls = await Ball.filter(regime__name=line_type)
+        elif regime_type:
+            available_balls = await Ball.filter(regime__name=regime_type)
             if not available_balls:
-                await interaction.followup.send(f"No balls found in {line_type} line!", ephemeral=True)
+                await interaction.followup.send(f"No balls found for regime type: {regime_type}!", ephemeral=True)
                 return
         
         results = await self.reward_manager.distribute_rewards(
@@ -482,7 +479,7 @@ class Rewards(commands.GroupCog, group_name="rewards"):
             f"Rewards per user: {reward_count}"
         )
 
-    distribute.autocomplete("station_type")(station_type_autocomplete)
-    distribute.autocomplete("line_type")(line_type_autocomplete)
+    distribute.autocomplete("economy_type")(economy_type_autocomplete)
+    distribute.autocomplete("regime_type")(regime_type_autocomplete)
     distribute.autocomplete("special_event")(special_event_autocomplete)
     distribute.autocomplete("specific_ball")(ball_autocomplete) 
