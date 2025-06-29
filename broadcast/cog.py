@@ -12,22 +12,34 @@ import math
 import logging
 import io
 
-logging.basicConfig(level=logging.ERROR)
+
+logging.basicConfig(level=logging.ERROR) 
 logger = logging.getLogger(__name__)
 
 class Broadcast(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.pages = {}
+        self.pages = {} 
 
     async def cog_load(self):
+        """Runs when cog loads"""
         await self.bot.wait_until_ready()
+        pass
 
     async def get_broadcast_channels(self):
         try:
             channels = set()
             async for config in GuildConfig.filter(enabled=True, spawn_channel__isnull=False):
-                channels.add(config.spawn_channel)
+                channel = self.bot.get_channel(config.spawn_channel)
+                if channel:
+                    channels.add(config.spawn_channel)
+                else:
+                    try:
+                        config.enabled = False
+                        await config.save()
+                        logger.debug(f"Disabled guild {config.guild_id} due to missing channel {config.spawn_channel}")
+                    except Exception as e:
+                        logger.error(f"Error disabling guild {config.guild_id}: {str(e)}")
             return channels
         except Exception as e:
             logger.error(f"Error getting broadcast channels: {str(e)}")
@@ -35,29 +47,35 @@ class Broadcast(commands.Cog):
             return set()
 
     async def get_member_count(self, guild):
+        """to get the number of server members"""
         try:
             if not guild.me.guild_permissions.view_channel:
-                logger.warning(f"No permission to view channel in guild {guild.name}")
+                logger.debug(f"No permission to view channel in guild {guild.name}")
                 return 0
+                
             return guild.member_count
+                
         except Exception as e:
             logger.error(f"Error in get_member_count: {str(e)}")
             logger.error(traceback.format_exc())
             return 0
 
     def create_embed(self, channel_list, total_stats, page, total_pages):
+        """create embed message"""
         try:
             embed = discord.Embed(
-                title="Ball Spawn Channel List",
+                title="Ball Generation Channel List",
                 color=discord.Color.blue(),
                 timestamp=datetime.now(timezone.utc)
             )
             
             embed.add_field(
-                name="Overall Statistics",
+                name="Statistics",
                 value=(
                     f"Total Channels: {total_stats['total_channels']}\n"
-                    f"Total Members: {total_stats['total_members']:,}"
+                    f"Total Members: {total_stats['total_members']:,}\n"
+                    f"Unknown Channels: {total_stats['unknown_channels']}\n"
+                    f"Unknown Guilds: {total_stats['unknown_guilds']}"
                 ),
                 inline=False
             )
@@ -84,6 +102,7 @@ class Broadcast(commands.Cog):
             self.total_stats = total_stats
             self.current_page = 1
             self.total_pages = math.ceil(len(channel_list) / 5)
+            
             self.update_buttons()
             
         def update_buttons(self):
@@ -98,14 +117,14 @@ class Broadcast(commands.Cog):
             except discord.HTTPException:
                 pass
             
-        @discord.ui.button(label="Previous", style=discord.ButtonStyle.primary)
+        @discord.ui.button(label="Previous Page", style=discord.ButtonStyle.primary)
         async def previous_page(self, interaction: discord.Interaction, button: discord.ui.Button):
             if self.current_page > 1:
                 self.current_page -= 1
                 self.update_buttons()
                 await self.update_message(interaction)
                 
-        @discord.ui.button(label="Next", style=discord.ButtonStyle.primary)
+        @discord.ui.button(label="Next Page", style=discord.ButtonStyle.primary)
         async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
             if self.current_page < self.total_pages:
                 self.current_page += 1
@@ -121,45 +140,39 @@ class Broadcast(commands.Cog):
             await interaction.response.edit_message(embed=embed, view=self)
             self.message = await interaction.original_response()
 
-    @app_commands.command(name="list_broadcast_channels", description="List all ball spawn channels")
+    @app_commands.command(name="list_broadcast_channels", description="List all ball generation channels")
     @app_commands.default_permissions(administrator=True)
     async def list_broadcast_channels(self, interaction: discord.Interaction):
         if not is_staff(interaction):
-            await interaction.response.send_message("You need BallsDex admin permissions to use this command.")
+            await interaction.response.send_message("You need Ball Manager permissions to use this command.")
             return
 
         try:
             channels = await self.get_broadcast_channels()
             if not channels:
-                await interaction.response.send_message("No ball spawn channels configured.")
+                await interaction.response.send_message("No ball generation channels are currently configured.")
                 return
 
-            await interaction.response.send_message("Gathering server information, please wait...")
+            await interaction.response.send_message("Collecting server information, please wait...")
             
             channel_list = []
             total_stats = {
                 'total_channels': len(channels),
-                'total_members': 0
+                'total_members': 0,
+                'unknown_channels': 0,
+                'unknown_guilds': 0
             }
             
             for channel_id in channels:
                 try:
                     channel = self.bot.get_channel(channel_id)
                     if not channel:
-                        logger.warning(f"Channel {channel_id} not found")
-                        channel_list.append({
-                            'name': "Unknown Channel",
-                            'value': f"ID: {channel_id}"
-                        })
+                        total_stats['unknown_channels'] += 1
                         continue
                         
                     guild = channel.guild
                     if not guild:
-                        logger.warning(f"Guild not found for channel {channel_id}")
-                        channel_list.append({
-                            'name': "Unknown Server",
-                            'value': f"Channel ID: {channel_id}"
-                        })
+                        total_stats['unknown_guilds'] += 1
                         continue
                         
                     member_count = await self.get_member_count(guild)
@@ -169,13 +182,13 @@ class Broadcast(commands.Cog):
                         'name': f"**{guild.name}**",
                         'value': (
                             f"└ Channel: #{channel.name} (`{channel.id}`)\n"
-                            f"└ Server ID: `{guild.id}`\n"
+                            f"└ Guild ID: `{guild.id}`\n"
                             f"└ Members: {member_count:,}"
                         )
                     })
 
                     total_catches = await BallInstance.filter(server_id=guild.id).count()
-                    if total_catches >= 20:
+                    if total_catches >= 20: 
                         recent_catches = await BallInstance.filter(
                             server_id=guild.id
                         ).order_by("-catch_date").limit(10).prefetch_related("player")
@@ -184,7 +197,7 @@ class Broadcast(commands.Cog):
                             unique_catchers = len(set(ball.player.discord_id for ball in recent_catches))
                             if unique_catchers == 1:
                                 player = recent_catches[0].player
-                                channel_list[-1]['value'] += f"\n└ ⚠️ **Last 10 balls caught by {player}**"
+                                channel_list[-1]['value'] += f"\n ⚠️ **The last 10 balls were all caught by {player}**"
 
                 except Exception as e:
                     logger.error(f"Error processing channel {channel_id}: {str(e)}")
@@ -195,7 +208,7 @@ class Broadcast(commands.Cog):
                     })
 
             if not channel_list:
-                await interaction.followup.send("Unable to retrieve any channel information.")
+                await interaction.followup.send("Could not retrieve any channel information.")
                 return
 
             try:
@@ -208,20 +221,22 @@ class Broadcast(commands.Cog):
                 current_channels = channel_list[start_idx:end_idx]
                 
                 embed = self.create_embed(current_channels, total_stats, current_page, total_pages)
+                
                 view = self.PaginationView(self, channel_list, total_stats)
+                
                 await interaction.followup.send(embed=embed, view=view)
                     
             except Exception as e:
                 logger.error(f"Error sending channel list: {str(e)}")
                 logger.error(traceback.format_exc())
-                await interaction.followup.send("Error processing channel list, please try again later.")
+                await interaction.followup.send("An error occurred while processing the channel list. Please try again later.")
                 
         except Exception as e:
             logger.error(f"Error in list_broadcast_channels: {str(e)}")
             logger.error(traceback.format_exc())
-            await interaction.response.send_message("An error occurred while executing the command, please try again later.")
+            await interaction.response.send_message("An error occurred while executing the command. Please try again later.")
 
-    @app_commands.command(name="broadcast", description="Send broadcast message to all ball spawn channels")
+    @app_commands.command(name="broadcast", description="Send a broadcast message to all ball generation channels")
     @app_commands.default_permissions(administrator=True)
     @app_commands.choices(broadcast_type=[
         app_commands.Choice(name="Text and Image", value="both"),
@@ -235,27 +250,28 @@ class Broadcast(commands.Cog):
         message: Optional[str] = None,
         attachment: Optional[discord.Attachment] = None
     ):
+        """Send broadcast messages to all ball-generating channels"""
         if not is_staff(interaction):
-            await interaction.response.send_message("You need BallsDex admin permissions to use this command.")
+            await interaction.response.send_message("You need Ball Manager permissions to use this command.")
             return
 
         if broadcast_type == "text" and not message:
-            await interaction.response.send_message("Message content is required for text-only mode.")
+            await interaction.response.send_message("You must provide a message when selecting 'Text Only' mode.")
             return
         if broadcast_type == "image" and not attachment:
-            await interaction.response.send_message("Image is required for image-only mode.")
+            await interaction.response.send_message("You must provide an image when selecting 'Image Only' mode.")
             return
         if broadcast_type == "both" and not message and not attachment:
-            await interaction.response.send_message("Message content or image is required for text and image mode.")
+            await interaction.response.send_message("You must provide a message or image when selecting 'Text and Image' mode.")
             return
 
         try:
             channels = await self.get_broadcast_channels()
             if not channels:
-                await interaction.response.send_message("No ball spawn channels configured.")
+                await interaction.response.send_message("No ball generation channels are currently configured.")
                 return
 
-            await interaction.response.send_message("Starting broadcast...")
+            await interaction.response.send_message("Broadcasting message...")
             
             success_count = 0
             fail_count = 0
@@ -280,7 +296,7 @@ class Broadcast(commands.Cog):
                 except Exception as e:
                     logger.error(f"Error downloading attachment: {str(e)}")
                     logger.error(traceback.format_exc())
-                    await interaction.followup.send("Error downloading attachment, will send text only.")
+                    await interaction.followup.send("An error occurred while downloading the attachment. Only the text message will be sent.")
             
             for channel_id in channels:
                 try:
@@ -295,7 +311,7 @@ class Broadcast(commands.Cog):
                                 spoiler=attachment.is_spoiler()
                             )
                             await channel.send(file=new_file)
-                        else:
+                        else:  # both
                             if file_data and broadcast_message:
                                 new_file = discord.File(
                                     io.BytesIO(file_data),
@@ -334,9 +350,9 @@ class Broadcast(commands.Cog):
         except Exception as e:
             logger.error(f"Error in broadcast: {str(e)}")
             logger.error(traceback.format_exc())
-            await interaction.response.send_message("An error occurred while executing the command, please try again later.")
+            await interaction.response.send_message("An error occurred while executing the command. Please try again later.")
 
-    @app_commands.command(name="broadcast_dm", description="Send DM broadcast to specific users")
+    @app_commands.command(name="broadcast_dm", description="Send a DM broadcast to specific users")
     @app_commands.default_permissions(administrator=True)
     async def broadcast_dm(
         self, 
@@ -344,8 +360,14 @@ class Broadcast(commands.Cog):
         message: str,
         user_ids: str
     ):
+        """Private Message Broadcasting to Specified users
+        
+        Args:
+            message: the message you are going to send
+            user_ids: a comma-separated list of user IDs to send the message to
+        """
         if not is_staff(interaction):
-            await interaction.response.send_message("You need BallsDex admin permissions to use this command.")
+            await interaction.response.send_message("You need Ball Manager permissions to use this command.")
             return
 
         try:
@@ -392,4 +414,4 @@ class Broadcast(commands.Cog):
         except Exception as e:
             logger.error(f"Error in broadcast_dm: {str(e)}")
             logger.error(traceback.format_exc())
-            await interaction.response.send_message("An error occurred while executing the command, please try again later.") 
+            await interaction.response.send_message("An error occurred while executing the command. Please try again later.") 
