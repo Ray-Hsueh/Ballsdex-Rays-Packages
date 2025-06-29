@@ -140,17 +140,17 @@ class Broadcast(commands.Cog):
             await interaction.response.edit_message(embed=embed, view=self)
             self.message = await interaction.original_response()
 
-    @app_commands.command(name="list_broadcast_channels", description="List all ball generation channels")
+    @app_commands.command(name="list_broadcast_channels", description="List all ball spawn channels")
     @app_commands.default_permissions(administrator=True)
     async def list_broadcast_channels(self, interaction: discord.Interaction):
         if not is_staff(interaction):
-            await interaction.response.send_message("You need Ball Manager permissions to use this command.")
+            await interaction.response.send_message("You need bot admin permissions to use this command.")
             return
 
         try:
             channels = await self.get_broadcast_channels()
             if not channels:
-                await interaction.response.send_message("No ball generation channels are currently configured.")
+                await interaction.response.send_message("No ball spawn channels are currently configured.")
                 return
 
             await interaction.response.send_message("Collecting server information, please wait...")
@@ -197,7 +197,7 @@ class Broadcast(commands.Cog):
                             unique_catchers = len(set(ball.player.discord_id for ball in recent_catches))
                             if unique_catchers == 1:
                                 player = recent_catches[0].player
-                                channel_list[-1]['value'] += f"\n ⚠️ **The last 10 balls were all caught by {player}**"
+                                channel_list[-1]['value'] += f"\n└ ⚠️ **The last 10 balls were all caught by {player}**"
 
                 except Exception as e:
                     logger.error(f"Error processing channel {channel_id}: {str(e)}")
@@ -236,7 +236,7 @@ class Broadcast(commands.Cog):
             logger.error(traceback.format_exc())
             await interaction.response.send_message("An error occurred while executing the command. Please try again later.")
 
-    @app_commands.command(name="broadcast", description="Send a broadcast message to all ball generation channels")
+    @app_commands.command(name="broadcast", description="Send a broadcast message to all ball spawn channels")
     @app_commands.default_permissions(administrator=True)
     @app_commands.choices(broadcast_type=[
         app_commands.Choice(name="Text and Image", value="both"),
@@ -250,9 +250,9 @@ class Broadcast(commands.Cog):
         message: Optional[str] = None,
         attachment: Optional[discord.Attachment] = None
     ):
-        """Send broadcast messages to all ball-generating channels"""
+        """Send broadcast messages to all ball spawn channels"""
         if not is_staff(interaction):
-            await interaction.response.send_message("You need Ball Manager permissions to use this command.")
+            await interaction.response.send_message("You need bot admin permissions to use this command.")
             return
 
         if broadcast_type == "text" and not message:
@@ -268,7 +268,7 @@ class Broadcast(commands.Cog):
         try:
             channels = await self.get_broadcast_channels()
             if not channels:
-                await interaction.response.send_message("No ball generation channels are currently configured.")
+                await interaction.response.send_message("No ball spawn channels are currently configured.")
                 return
 
             await interaction.response.send_message("Broadcasting message...")
@@ -367,7 +367,7 @@ class Broadcast(commands.Cog):
             user_ids: a comma-separated list of user IDs to send the message to
         """
         if not is_staff(interaction):
-            await interaction.response.send_message("You need Ball Manager permissions to use this command.")
+            await interaction.response.send_message("You need bot admin permissions to use this command.")
             return
 
         try:
