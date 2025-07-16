@@ -248,7 +248,8 @@ class Broadcast(commands.Cog):
         interaction: discord.Interaction, 
         broadcast_type: str,
         message: Optional[str] = None,
-        attachment: Optional[discord.Attachment] = None
+        attachment: Optional[discord.Attachment] = None,
+        anonymous: bool = False
     ):
         """Send broadcast messages to all ball spawn channels"""
         if not is_staff(interaction):
@@ -284,8 +285,9 @@ class Broadcast(commands.Cog):
                     "------------------------\n"
                     f"{message}\n"
                     "------------------------\n"
-                    f"*Sent by {interaction.user.name}*"
                 )
+                if not anonymous:
+                    broadcast_message += f"\n*Sent by {interaction.user.name}*"
             
             file = None
             file_data = None
@@ -358,13 +360,15 @@ class Broadcast(commands.Cog):
         self, 
         interaction: discord.Interaction, 
         message: str,
-        user_ids: str
+        user_ids: str,
+        anonymous: bool = False
     ):
         """Private Message Broadcasting to Specified users
         
         Args:
             message: the message you are going to send
             user_ids: a comma-separated list of user IDs to send the message to
+            anonymous: gives an option to send the message anonymously
         """
         if not is_staff(interaction):
             await interaction.response.send_message("You need bot admin permissions to use this command.")
@@ -387,8 +391,9 @@ class Broadcast(commands.Cog):
                 "------------------------\n"
                 f"{message}\n"
                 "------------------------\n"
-                f"*Sent by {interaction.user.name}*"
             )
+            if not anonymous:
+                broadcast_message += f"\n*Sent by {interaction.user.name}*"
             
             for user_id in user_id_list:
                 try:
