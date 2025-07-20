@@ -1,0 +1,1 @@
+# I've been testing it for a few months, I'll put it up when I have time. And it involves modifying countryball.py.
