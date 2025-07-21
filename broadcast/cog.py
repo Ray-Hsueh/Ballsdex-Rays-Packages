@@ -287,7 +287,7 @@ class Broadcast(commands.Cog):
                     "------------------------\n"
                 )
                 if not anonymous:
-                    broadcast_message += f"\n*Sent by {interaction.user.name}*"
+                    broadcast_message += f"*Sent by {interaction.user.name}*"
             
             file = None
             file_data = None
@@ -393,7 +393,7 @@ class Broadcast(commands.Cog):
                 "------------------------\n"
             )
             if not anonymous:
-                broadcast_message += f"\n*Sent by {interaction.user.name}*"
+                dm_message += f"*Sent by {interaction.user.name}*"
             
             for user_id in user_id_list:
                 try:
@@ -419,4 +419,7 @@ class Broadcast(commands.Cog):
         except Exception as e:
             logger.error(f"Error in broadcast_dm: {str(e)}")
             logger.error(traceback.format_exc())
-            await interaction.response.send_message("An error occurred while executing the command. Please try again later.") 
+            try:
+                await interaction.followup.send("An error occurred while executing the command. Please try again later.")
+            except Exception:
+                pass 
