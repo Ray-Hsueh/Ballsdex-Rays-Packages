@@ -356,7 +356,7 @@ class Rewards(commands.GroupCog, group_name="rewards"):
         ][:25]
 
     @app_commands.command()
-    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_any_role(*settings.root_role_ids)
     async def distribute(
         self,
         interaction: discord.Interaction,

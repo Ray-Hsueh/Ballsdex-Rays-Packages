@@ -237,7 +237,7 @@ class Broadcast(commands.Cog):
             await interaction.response.send_message("An error occurred while executing the command. Please try again later.")
 
     @app_commands.command(name="broadcast", description="Send a broadcast message to all ball spawn channels")
-    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_any_role(*settings.root_role_ids)
     @app_commands.choices(broadcast_type=[
         app_commands.Choice(name="Text and Image", value="both"),
         app_commands.Choice(name="Text Only", value="text"),
@@ -252,10 +252,6 @@ class Broadcast(commands.Cog):
         anonymous: bool = False
     ):
         """Send broadcast messages to all ball spawn channels"""
-        if not is_staff(interaction):
-            await interaction.response.send_message("You need bot admin permissions to use this command.")
-            return
-
         if broadcast_type == "text" and not message:
             await interaction.response.send_message("You must provide a message when selecting 'Text Only' mode.")
             return
@@ -355,7 +351,7 @@ class Broadcast(commands.Cog):
             await interaction.response.send_message("An error occurred while executing the command. Please try again later.")
 
     @app_commands.command(name="broadcast_dm", description="Send a DM broadcast to specific users")
-    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_any_role(*settings.root_role_ids)
     async def broadcast_dm(
         self, 
         interaction: discord.Interaction, 
@@ -370,10 +366,6 @@ class Broadcast(commands.Cog):
             user_ids: a comma-separated list of user IDs to send the message to
             anonymous: gives an option to send the message anonymously
         """
-        if not is_staff(interaction):
-            await interaction.response.send_message("You need bot admin permissions to use this command.")
-            return
-
         try:
             user_id_list = [uid.strip() for uid in user_ids.split(",")]
             if not user_id_list:
