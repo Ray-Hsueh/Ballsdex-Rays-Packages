@@ -458,6 +458,16 @@ class Rewards(commands.GroupCog, group_name="rewards"):
             if not available_balls:
                 await interaction.followup.send(f"No balls found for regime type: {regime_type}!", ephemeral=True)
                 return
+                
+        from ballsdex.core.utils.logging import log_action
+        log_msg = (
+            f"[Reward Distribution] Admin {interaction.user} ({interaction.user.id}) used /rewards distribute command\n"
+            f"Type: {reward_type}\nDescription: {reward_description}\nCount: {reward_count}\n"
+            f"Economy Type: {economy_type or '-'}\nRegime Type: {regime_type or '-'}\nSpecific Ball: {specific_ball or '-'}\n"
+            f"Rarity Range: {min_rarity or '-'}~{max_rarity or '-'}\nTarget Role: {getattr(target_role, 'name', '-') if target_role else '-'}\n"
+            f"Target User IDs: {target_user_ids or '-'}\nSpecial Event: {getattr(special_event, 'id', '-') if special_event else '-'}"
+        )
+        await log_action(log_msg, self.bot)
         
         results = await self.reward_manager.distribute_rewards(
             self.bot,
