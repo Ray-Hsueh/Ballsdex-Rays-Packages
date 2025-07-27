@@ -15,8 +15,10 @@ from ballsdex.packages.trade.menu import ConfirmView
 from ballsdex.core.utils.paginator import FieldPageSource, Pages
 from ballsdex.packages.countryballs.countryball import BallSpawnView
 from ballsdex.settings import settings
+from ballsdex.core.utils.buttons import ConfirmChoiceView
 
 PENDING_REWARDS_FILE = os.path.join(os.path.dirname(__file__), "pending_rewards.json")
+OPT_OUT_FILE = os.path.join(os.path.dirname(__file__), "opt_out.json")
 
 class PendingReward:
     def __init__(self, user_id: int, reward_info: Dict[str, Any], expiry_time: datetime):
@@ -157,6 +159,51 @@ class RewardClaimView(discord.ui.View):
             print(f"Unexpected error while distributing reward: {str(e)}")
             await interaction.followup.send("Error occurred while distributing reward. Please try again later! If the problem persists, contact an administrator.", ephemeral=True)
 
+    @discord.ui.button(label="Opt out of rewards", style=discord.ButtonStyle.danger)
+    async def decline_reward(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This is not your reward!", ephemeral=True)
+            return
+        if self.claimed:
+            await interaction.response.send_message("You have already claimed this reward!", ephemeral=True)
+            return
+        view = ConfirmChoiceView(
+            interaction,
+            accept_message="You have opted out of the rewards service. You will no longer receive any reward notifications.",
+            cancel_message="Opt-out operation cancelled."
+        )
+        await interaction.response.send_message(
+            "Are you sure you want to opt out of the rewards service?\n"
+            "⚠️ Note: After opting out, you will no longer receive any reward notifications!\n"
+            "This operation can only be reverted by contacting an administrator!",
+            view=view,
+            ephemeral=True
+        )
+        await view.wait()
+        if view.value:
+
+            self.reward_manager.add_to_opt_out(interaction.user.id)
+
+            try:
+                if interaction.user.id in self.reward_manager.pending_rewards:
+                    del self.reward_manager.pending_rewards[interaction.user.id]
+                    self.reward_manager.save_pending_rewards()
+            except Exception as e:
+                print(f"Error removing pending reward: {str(e)}")
+
+            for item in self.children:
+                item.disabled = True
+
+            try:
+                embed = discord.Embed(
+                    title="❌ You have opted out of the rewards service",
+                    description="You have chosen not to receive any further reward notifications.",
+                    color=discord.Color.red()
+                )
+                await interaction.message.edit(embed=embed, view=self)
+            except Exception as e:
+                print(f"Error updating message content: {str(e)}")
+
     async def on_timeout(self):
         if not self.claimed:
             embed = discord.Embed(
@@ -179,7 +226,8 @@ class RewardManager:
             os.makedirs(rewards_dir)
         self.pending_rewards = self.load_pending_rewards()
         self.confirmation_timeout = 86400
-        
+        self.opt_out_users = self.load_opt_out()
+
     def load_pending_rewards(self):
         if os.path.exists(PENDING_REWARDS_FILE):
             with open(PENDING_REWARDS_FILE, "r", encoding="utf-8") as f:
@@ -204,10 +252,39 @@ class RewardManager:
         with open(PENDING_REWARDS_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
+    def load_opt_out(self):
+        """Load opt-out user list"""
+        if os.path.exists(OPT_OUT_FILE):
+            with open(OPT_OUT_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data.get("opt_out_users", [])
+        return []
+
+    def save_opt_out(self):
+        """Save opt-out user list"""
+        data = {"opt_out_users": self.opt_out_users}
+        with open(OPT_OUT_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+    def add_to_opt_out(self, user_id: int):
+        """Add user to opt-out list"""
+        if user_id not in self.opt_out_users:
+            self.opt_out_users.append(user_id)
+            self.save_opt_out()
+
+    def is_opt_out(self, user_id: int) -> bool:
+        """Check if user has opted out of rewards service"""
+        return user_id in self.opt_out_users
+
     async def send_reward_confirmation(self, interaction: discord.Interaction, user: discord.User, reward_info: Dict[str, Any]) -> bool:
         try:
+
+            if user.id in self.bot.blacklist:
+                return False
+
+            if self.is_opt_out(user.id):
+                return False
             expiry_time = datetime.now() + timedelta(seconds=self.confirmation_timeout)
-            
             view = RewardClaimView(self, user.id, reward_info, expiry_time)
             embed = discord.Embed(
                 title="🎁 New Reward Notification",
@@ -259,7 +336,9 @@ class RewardManager:
         results = {
             "total_users": 0,
             "notified_users": 0,
-            "failed_users": 0
+            "failed_users": 0,
+            "opt_out_users": 0,
+            "blacklisted_users": 0
         }
         progress_message = None
         batch_size = 10
@@ -282,7 +361,9 @@ class RewardManager:
         total = len(target_users)
         notified = 0
         failed = 0
-        progress_message = await interaction.followup.send(f":gift: Distributing rewards...\nNotified: 0\nFailed: 0\nRemaining: {total}", ephemeral=True)
+        opt_out = 0
+        blacklisted = 0
+        progress_message = await interaction.followup.send(f":gift: Distributing rewards...\nNotified: 0\nFailed: 0\nOpted-out users: 0\nBlacklisted users: 0\nRemaining: {total}", ephemeral=True)
         for i in range(0, total, batch_size):
             batch = target_users[i:i+batch_size]
             tasks = [self.send_reward_confirmation(interaction, user, {
@@ -294,17 +375,29 @@ class RewardManager:
                 "special_event": special_event.id if special_event else None
             }) for user in batch]
             results_list = await asyncio.gather(*tasks)
-            notified += sum(1 for r in results_list if r)
-            failed += sum(1 for r in results_list if not r)
+            for idx, user in enumerate(batch):
+                if user.id in self.bot.blacklist:
+                    blacklisted += 1
+                elif self.is_opt_out(user.id):
+                    opt_out += 1
+                elif results_list[idx]:
+                    notified += 1
+                else:
+                    failed += 1
             await progress_message.edit(
-                content=f":gift: Distributing rewards...\nNotified: {notified}\nFailed: {failed}\nRemaining: {max(0, total - (i+batch_size))}"
+                content=f":gift: Distributing rewards...\nNotified: {notified}\nFailed: {failed}\nOpted-out users: {opt_out}\nBlacklisted users: {blacklisted}\nRemaining: {max(0, total - (i+batch_size))}"
             )
             await asyncio.sleep(1)
         results["notified_users"] = notified
         results["failed_users"] = failed
+        results["opt_out_users"] = opt_out
+        results["blacklisted_users"] = blacklisted
         return results
 
 class Rewards(commands.GroupCog, group_name="rewards"):
+    """
+    Reward system related commands.
+    """
     hidden = True
     
     def __init__(self, bot: commands.Bot):
@@ -374,7 +467,7 @@ class Rewards(commands.GroupCog, group_name="rewards"):
     ):
         """
         Distribute rewards to specified users.
-        
+
         Parameters
         ----------
         reward_type: str
@@ -486,6 +579,8 @@ class Rewards(commands.GroupCog, group_name="rewards"):
             f"Total users: {results['total_users']}\n"
             f"Notified: {results['notified_users']}\n"
             f"Failed: {results['failed_users']}\n"
+            f"Opted-out users: {results['opt_out_users']}\n"
+            f"Blacklisted users: {results['blacklisted_users']}\n"
             f"Rewards per user: {reward_count}"
         )
 
