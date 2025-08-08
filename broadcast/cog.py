@@ -141,7 +141,7 @@ class Broadcast(commands.Cog):
             self.message = await interaction.original_response()
 
     @app_commands.command(name="list_broadcast_channels", description="List all ball spawn channels")
-    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_any_role(*settings.root_role_ids)
     async def list_broadcast_channels(self, interaction: discord.Interaction):
         if not is_staff(interaction):
             await interaction.response.send_message("You need bot admin permissions to use this command.")
@@ -415,3 +415,4 @@ class Broadcast(commands.Cog):
                 await interaction.followup.send("An error occurred while executing the command. Please try again later.")
             except Exception:
                 pass 
+
