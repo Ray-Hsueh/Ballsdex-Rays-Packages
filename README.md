@@ -41,3 +41,8 @@ packages:
 By following these steps, you can successfully add and use the custom package in BallsDex.
 
 *All files have only been tested in version 2.26.2 and may have errors due to translation issues. The English version of the code you are looking at may not work because it has never been run on my bot. You can fix the error and open a PR or contact me to see if there is a way to fix it.*
+
+# My heroes
+<a href="https://github.com/Ray-Hsueh/Ballsdex-Rays-Packages/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=Ray-Hsueh/Ballsdex-Rays-Packages" />
+</a>
