@@ -7,6 +7,7 @@ import random
 import time
 from datetime import datetime
 from ballsdex.settings import settings
+from typing import Optional
 
 REPORT_CHANNEL_ID = 1369980696696848414
 REPORT_GUILD_ID = 1229732904238714902
@@ -46,15 +47,30 @@ class ReportCog(commands.Cog, name="Report"):
     @app_commands.command(name="report", description="Report issues or suggestions to the backend server")
     @app_commands.describe(
         report_type="Select report type",
-        content="Please describe your issue or suggestion in detail"
+        content="Please describe your issue or suggestion in detail",
+        attachment="Optional: Attach files"
     )
     @app_commands.choices(
         report_type=[app_commands.Choice(name=label, value=value) for label, value in REPORT_TYPES]
     )
-    async def report(self, interaction: discord.Interaction, report_type: app_commands.Choice[str], content: str):
+    async def report(self, interaction: discord.Interaction, report_type: app_commands.Choice[str], content: str, attachment: Optional[discord.Attachment] = None):
+        await interaction.response.defer(ephemeral=True, thinking=True)
         reports = load_reports()
         report_id = generate_report_id(reports.keys())
         now = datetime.utcnow().isoformat()
+
+        attachments_meta = []
+        if attachment is not None:
+            attachments_meta.append(
+                {
+                    "id": getattr(attachment, "id", None),
+                    "filename": attachment.filename,
+                    "content_type": getattr(attachment, "content_type", None),
+                    "size": getattr(attachment, "size", None),
+                    "url": attachment.url,
+                }
+            )
+
         reports[report_id] = {
             "user_id": interaction.user.id,
             "user_name": str(interaction.user),
@@ -65,6 +81,8 @@ class ReportCog(commands.Cog, name="Report"):
             "replied": False,
             "reply_time": None,
             "reply_by": None,
+            "attachments": attachments_meta,
+            "uploaded_attachments": [],
         }
         save_reports(reports)
 
@@ -76,6 +94,11 @@ class ReportCog(commands.Cog, name="Report"):
         embed.add_field(name="Content", value=content, inline=False)
         embed.add_field(name="Report ID", value=report_id, inline=False)
         embed.add_field(name="Status", value="Pending", inline=False)
+        if attachment is not None:
+            embed.add_field(name="files", value=attachment.filename, inline=False)
+            
+            if getattr(attachment, "content_type", "").startswith("image/"):
+                embed.set_image(url=f"attachment://{attachment.filename}")
         embed.set_footer(text=f"From {interaction.user} ({interaction.user.id})")
         embed.timestamp = discord.utils.utcnow()
 
@@ -85,9 +108,27 @@ class ReportCog(commands.Cog, name="Report"):
         if guild is not None:
             channel = guild.get_channel(REPORT_CHANNEL_ID)
             if channel and isinstance(channel, discord.TextChannel):
-                message = await channel.send(embed=embed, view=view)
+                files = []
+                if attachment is not None:
+                    try:
+                        files = [await attachment.to_file()]
+                    except Exception:
+                        files = []
+                message = await channel.send(embed=embed, view=view, files=files)
                 self.report_messages[report_id] = message
-                await interaction.response.send_message(f"✅ Report submitted successfully! Your report ID is {report_id}. You will be notified of any updates via DM.", ephemeral=True)
+                if attachment is not None and message.attachments:
+                    reports[report_id]["uploaded_attachments"] = [
+                        {
+                            "filename": a.filename,
+                            "url": a.url,
+                            "content_type": getattr(a, "content_type", None),
+                            "size": getattr(a, "size", None),
+                        }
+                        for a in message.attachments
+                    ]
+                    save_reports(reports)
+
+                await interaction.followup.send(f"✅ Report submitted successfully! Your report ID is {report_id}. You will be notified of any updates via DM.", ephemeral=True)
                 try:
                     await interaction.user.send(
                         f"Hello, we have received your report (ID: {report_id}, Type: {report_type.name}). Our administrators will process it.\nYou will be notified of any updates via DM. Thank you for your assistance!"
@@ -96,7 +137,7 @@ class ReportCog(commands.Cog, name="Report"):
                     pass
                 return
 
-        await interaction.response.send_message("❌ Report submission failed. Please contact an administrator.", ephemeral=True)
+        await interaction.followup.send("❌ Report submission failed. Please contact an administrator.", ephemeral=True)
 
 class ReportReplyView(discord.ui.View):
     def __init__(self, cog: ReportCog, report_id: str, report_data: dict):
@@ -163,6 +204,24 @@ class ReportReplyModal(discord.ui.Modal, title="Reply to Report"):
         )
         embed.add_field(name="Report Type", value=report["type"], inline=False)
         embed.add_field(name="Original Content", value=report["content"], inline=False)
+        
+        attachment_lines = []
+        uploaded = report.get("uploaded_attachments") or []
+        if uploaded:
+            for a in uploaded:
+                url = a.get("url")
+                name = a.get("filename") or "files"
+                if url:
+                    attachment_lines.append(f"[{name}]({url})")
+        elif report.get("attachments"):
+            for a in report.get("attachments", []):
+                url = a.get("url")
+                name = a.get("filename") or "files"
+                if url:
+                    attachment_lines.append(f"[{name}]({url})")
+        if attachment_lines:
+            embed.add_field(name="report files", value="\n".join(attachment_lines), inline=False)
+
         embed.add_field(name="Administrator Reply", value=self.reply_content.value, inline=False)
         embed.set_footer(text=f"Replied by: {interaction.user} ({interaction.user.id})")
         embed.timestamp = discord.utils.utcnow()
