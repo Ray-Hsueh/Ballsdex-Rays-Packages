@@ -1,25 +1,17 @@
 # Adding Custom Package to BallsDex
 
-Follow these steps to add your custom package to BallsDex(we will use broadcast as example):
+> [!TIP]
+> In most cases, each folder represents a custom package.
 
-## Step 1: Create the Custom Directory
+Follow these steps to add your custom package to BallsDex(we will use `broadcast` as example):
+
+## Step 1: Go To The Right Directory
 1. Navigate to the `ballsdex/packages` directory.
-2. Create a new folder named `broadcast`.
-
-### On Linux/Mac:
-```sh
-mkdir -p ballsdex/packages/broadcast
-```
-
-### On Windows:
-```sh
-mkdir ballsdex\packages\broadcast
-```
 
 ## Step 2: Download Custom Files
 1. Download the necessary files from this repository.
-2. Place these files into the `ballsdex/packages/broadcast` directory.
-
+2. In this case, please download the folder named `broadcast`. 
+3. Place the whole folder into the `ballsdex/packages` directory.
 
 ## Step 3: Update Configuration
 1. Open the `config.yml` file in your BallsDex project.
