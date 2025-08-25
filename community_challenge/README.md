@@ -57,6 +57,6 @@ Below the embed displayed by these commands, there will be an automatically draw
 > [!NOTE]  
 > Only balls that are spawned will be included in the calculation, which means that balls that skip the `def catch_ball` step, such as those from the give command and daily rewards, will not be counted.
 
-Next, let's talk about the record. There are two JSON files responsible for all records, namely challenges.json and challenge_progress.json. Currently, the way to distribute rewards to all participants is to find challenge_progress.json and copy the IDs of each participant one by one.
+Next, let's talk about the record. There are two JSON files responsible for all records, namely `challenges.json` and `challenge_progress.json`. Currently, the way to distribute rewards to all participants is to find `challenge_progress.json` and copy the IDs of each participant one by one.
 
 That should be about it. Also, there will be no automatic notification to inform players when the event starts, so it is best to use a broadcast or announcement channel to let everyone know about it.
