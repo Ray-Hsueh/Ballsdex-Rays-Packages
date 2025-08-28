@@ -34,7 +34,7 @@
         for ball in balls_list:
             rarity_map[ball.rarity].append(ball)
         rarity_keys = sorted(rarity_map.keys())
-        page_size = 5
+        page_size = 5 # change this to adjust number of rarities per page
         pages = []
         for i in range(0, len(rarity_keys), page_size):
             page_rarities = rarity_keys[i:i+page_size]
