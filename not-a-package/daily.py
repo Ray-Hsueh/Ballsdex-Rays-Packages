@@ -84,10 +84,13 @@ TIMEZONE_SETTING = timezone(timedelta(hours=8)) # Timezone configuration - chang
         try:
             spawn_view = await BallSpawnView.get_random(self.bot)
             ball = spawn_view.model
+
+            special = spawn_view.get_random_special()
             
             instance = await BallInstance.create(
                 ball=ball,
                 player=player,
+                special=special,
                 attack_bonus=random.randint(settings.max_attack_bonus, settings.max_attack_bonus),
                 health_bonus=random.randint(settings.max_health_bonus, settings.max_health_bonus),
             )
