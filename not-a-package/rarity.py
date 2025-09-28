@@ -3,6 +3,10 @@
 # I know there are many others on the market, and essentially my command is quite similar to theirs, as I was inspired by anythingdex and modelled it on their appearance.
 # But I think my code is rather more concise ig?
 
+# import this, you can put it below the "from typing import TYPE_CHECKING, cast"
+from collections import defaultdict
+
+# and here's the command
     @app_commands.command()
     @app_commands.describe(countryball="The ball to be queried")
     async def rarity(
