@@ -5,14 +5,26 @@
 
 # import this, you can put it below the "from typing import TYPE_CHECKING, cast"
 from collections import defaultdict
+from typing import Optional #add this to the original "from typing import TYPE_CHECKING, cast"
+
+from ballsdex.core.utils.transformers import ( #add this to the original from ballsdex.core.utils.transformers import
+    EconomyTransform,
+    RegimeTransform,
+)
 
 # and here's the command
     @app_commands.command()
-    @app_commands.describe(countryball="The ball to be queried")
+    @app_commands.describe(
+        countryball="The ball to be queried",
+        regime="Filter results by route",
+        economy="Filter results by station type",
+    )
     async def rarity(
         self,
         interaction: discord.Interaction["BallsDexBot"],
-        countryball: BallEnabledTransform | None = None,
+        countryball: Optional[BallEnabledTransform] = None,
+        regime: Optional[RegimeTransform] = None,
+        economy: Optional[EconomyTransform] = None,
     ):
         """
         rarity list for balls, grouped by rarity level, or search for the rarity of a specific ball.
@@ -24,15 +36,47 @@ from collections import defaultdict
         """
         await interaction.response.defer(thinking=True)
         if countryball:
+            if regime and countryball.regime_id != regime.id:
+                await interaction.followup.send(
+                    f"{countryball.country} does not belong to the {regime.name} route.",
+                    ephemeral=True,
+                )
+                return
+            if economy and countryball.economy_id != economy.id:
+                await interaction.followup.send(
+                    f"{countryball.country} does not belong to the {economy.name} station type.",
+                    ephemeral=True,
+                )
+                return
             emoji = self.bot.get_emoji(countryball.emoji_id) or ""
             embed = discord.Embed(
                 title=f"Rarity of {countryball.country}",
                 description=f"{emoji} {countryball.country}\nRarity: {countryball.rarity}",
                 color=discord.Color.blurple(),
             )
-            await interaction.followup.send(embed=embed, ephemeral=False)
+            filters = []
+            if regime:
+                filters.append(f"Route: {regime.name}")
+            if economy:
+                filters.append(f"Station type: {economy.name}")
+            if filters:
+                embed.set_footer(text="; ".join(filters))
+            await interaction.followup.send(embed=embed)
             return
         balls_list = [ball for ball in balls.values() if ball.enabled]
+        if regime:
+            balls_list = [ball for ball in balls_list if ball.regime_id == regime.id]
+        if economy:
+            balls_list = [ball for ball in balls_list if ball.economy_id == economy.id]
+        if not balls_list:
+            filters = []
+            if regime:
+                filters.append(regime.name)
+            if economy:
+                filters.append(economy.name)
+            filter_text = ", ".join(filters) if filters else "the selected filters"
+            await interaction.followup.send(f"No balls match {filter_text}.")
+            return
         balls_list.sort(key=lambda b: (b.rarity, b.country))
         rarity_map = defaultdict(list)
         for ball in balls_list:
@@ -57,6 +101,13 @@ from collections import defaultdict
             async def format_page(self, menu, page):
                 embed = discord.Embed(title="Rarity List", color=discord.Color.blurple())
                 embed.description = page
+                filters = []
+                if regime:
+                    filters.append(f"Route: {regime.name}")
+                if economy:
+                    filters.append(f"Station type: {economy.name}")
+                if filters:
+                    embed.set_footer(text="; ".join(filters))
                 return embed
         source = RarityPageSource(pages)
         paginator = Pages(source=source, interaction=interaction, compact=True)
