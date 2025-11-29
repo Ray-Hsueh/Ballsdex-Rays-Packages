@@ -7,6 +7,7 @@
 ## How to Distribute Rewards
 - Administrators can use the `/rewards distribute` command to send rewards.
 - You can specify criteria such as economy type, regime type, rarity range, number of rewards, and target users or roles.
+> **Warning:** The `role` argument requires the **Server Members Intent** to be enabled in your Discord Developer Portal. Without this privileged intent, the bot may not be able to fetch members with the specified role.
 
 ## User Experience
 - When a reward is distributed, users will receive a private message notification (if possible) informing them about the reward type and details.
