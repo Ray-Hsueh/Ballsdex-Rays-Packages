@@ -374,7 +374,14 @@ class RewardManager:
                 "reward_count": reward_count,
                 "special_event": special_event.id if special_event else None
             }) for user in batch]
-            results_list = await asyncio.gather(*tasks)
+            results_list = []
+            for task in tasks:
+                try:
+                    result = await task
+                    results_list.append(result)
+                except Exception as e:
+                    print(f"Error distributing reward: {str(e)}")
+                    results_list.append(False)
             for idx, user in enumerate(batch):
                 if user.id in self.bot.blacklist:
                     blacklisted += 1
@@ -534,22 +541,38 @@ class Rewards(commands.GroupCog, group_name="rewards"):
         elif target_role:
             target_users = target_role.members
             
+        has_type_filter = specific_ball or economy_type or regime_type
+        
         available_balls = None
-        if specific_ball:
-            ball = await Ball.get_or_none(country=specific_ball)
-            if not ball:
-                await interaction.followup.send(f"Ball type not found: {specific_ball}!", ephemeral=True)
-                return
-            available_balls = [ball]
-        elif economy_type:
-            available_balls = await Ball.filter(economy__name=economy_type)
+        
+        if has_type_filter:
+            query = Ball.filter(enabled=True)
+            
+            if specific_ball:
+                query = query.filter(country=specific_ball)
+            if economy_type:
+                query = query.filter(economy__name=economy_type)
+            if regime_type:
+                query = query.filter(regime__name=regime_type)
+                
+            if rarity_range:
+                min_r, max_r = rarity_range
+                query = query.filter(rarity__gte=min_r, rarity__lte=max_r)
+                
+            available_balls = await query.all()
+            
             if not available_balls:
-                await interaction.followup.send(f"No balls found for economy type: {economy_type}!", ephemeral=True)
-                return
-        elif regime_type:
-            available_balls = await Ball.filter(regime__name=regime_type)
-            if not available_balls:
-                await interaction.followup.send(f"No balls found for regime type: {regime_type}!", ephemeral=True)
+                conditions = []
+                if specific_ball: conditions.append(f"Ball: {specific_ball}")
+                if economy_type: conditions.append(f"Economy: {economy_type}")
+                if regime_type: conditions.append(f"Regime: {regime_type}")
+                if rarity_range:
+                    conditions.append(f"Rarity: {rarity_range[0]}~{rarity_range[1]}")
+                
+                await interaction.followup.send(
+                    f"No balls found matching all conditions:\n" + "\n".join(conditions), 
+                    ephemeral=True
+                )
                 return
                 
         from ballsdex.core.utils.logging import log_action
