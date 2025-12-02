@@ -7,10 +7,20 @@ import asyncio
 from datetime import datetime
 
 from ballsdex.core.models import BallInstance, Player
-from ballsdex.packages.battle.menu import BattleMenu, FightInviteView, FightActionView
+from ballsdex.packages.battle.menu import (
+    BattleMenu, 
+    FightInviteView, 
+    FightActionView, 
+    BulkAddView
+)
 from ballsdex.packages.battle.battling_user import BattlingUser
 from ballsdex.settings import settings
-from ballsdex.core.utils.transformers import BallInstanceTransform
+from ballsdex.core.utils.transformers import (
+    BallInstanceTransform,
+    BallEnabledTransform,
+    SpecialEnabledTransform,
+)
+from ballsdex.core.utils.sorting import SortingChoices, sort_balls
 
 if TYPE_CHECKING:
     from ballsdex.core.bot import BallsDexBot
@@ -332,3 +342,58 @@ class Battle(commands.GroupCog):
             f"Selected the following strongest balls for the battle lineup:\n{display_message}", ephemeral=True
         )
         await battle.update_message()
+
+    @bulk.command(name="add")
+    async def bulk_add(
+        self,
+        interaction: discord.Interaction["BallsDexBot"],
+        countryball: BallEnabledTransform | None = None,
+        sort: SortingChoices | None = None,
+        special: SpecialEnabledTransform | None = None,
+    ):
+        """
+        Add multiple balls to the battle using search filters.
+
+        Parameters
+        ----------
+        countryball: Ball
+            Filter by specific countryball.
+        sort: SortingChoices
+            Sort the balls (useful to see duplicates).
+        special: Special
+            Filter by special event background.
+        """
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        battle = self.get_battle(interaction)
+        if not battle:
+            await interaction.followup.send("There is no ongoing battle.", ephemeral=True)
+            return
+
+        battler = battle.get_battler(interaction.user)
+        if not battler:
+            await interaction.followup.send("You are not a participant in this battle.", ephemeral=True)
+            return
+        
+        if battler.locked:
+            await interaction.followup.send("You have already locked your selection, cannot add more balls.", ephemeral=True)
+            return
+
+        query = BallInstance.filter(player__discord_id=interaction.user.id)
+        if countryball:
+            query = query.filter(ball=countryball)
+        if special:
+            query = query.filter(special=special)
+        if sort:
+            query = sort_balls(sort, query)
+        balls = await query
+        if not balls:
+            await interaction.followup.send(
+                f"No {settings.plural_collectible_name} found matching criteria.", ephemeral=True
+            )
+            return
+        
+        view = BulkAddView(interaction, balls, self)
+        await view.start(
+            content=f"Select the {settings.plural_collectible_name} you want to add to the battle.\n"
+            "Note: Selection clears when changing pages, but confirmed balls are saved."
+        )
