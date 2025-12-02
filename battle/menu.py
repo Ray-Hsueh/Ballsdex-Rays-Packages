@@ -3,16 +3,20 @@ import discord
 import random
 from datetime import timedelta
 from discord.ui import View, Button
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List, Optional, Set
 from discord import app_commands
 
 from ballsdex.packages.battle.battling_user import BattlingUser
 from ballsdex.settings import settings
 from ballsdex.core.models import BallInstance, Player
 from ballsdex.core.utils.transformers import BallInstanceTransform
+from ballsdex.core.utils.paginator import Pages
+from ballsdex.core.utils import menus
+from ballsdex.core.utils.buttons import ConfirmChoiceView
 
 if TYPE_CHECKING:
     from ballsdex.core.bot import BallsDexBot
+    from ballsdex.packages.battle.cog import Battle as BattleCog
 
 
 class BattleMenu:
@@ -184,9 +188,10 @@ class BattleMenu:
                     "1. Use `/battle add` command to select your balls\n"
                     "2. Use `/battle all` command to randomly select balls\n"
                     "3. Use `/battle best` command to select your strongest 10 balls\n"
-                    "4. After selection is complete, click the 'Lock Selection' button\n"
-                    "5. When both players have locked, the battle will automatically begin\n"
-                    "6. Battle will automatically timeout after 30 minutes\n\n"
+                    "4. Use `/battle bulk add` to open the bulk selection menu\n"
+                    "5. After selection is complete, click the 'Lock Selection' button\n"
+                    "6. When both players have locked, the battle will automatically begin\n"
+                    "7. Battle will automatically timeout after 30 minutes\n\n"
                     "📊 Damage Calculation Mechanism:\n"
                     "• Base damage = Attack power\n"
                     "• Defense reduction: When opponent's HP is higher, up to 20% damage reduction\n"
@@ -336,7 +341,7 @@ class BattleMenu:
             is_crit = random.random() < crit_chance
             damage_multiplier = 1.3 if is_crit else 1.0
             
-            defense_ratio = defender.health / (attacker.attack * 4)
+            defense_ratio = defender.health / (max(attacker.attack, 1) * 4) 
             defense_reduction = min(defense_ratio, 0.2)
             base_damage = attacker.attack * (1 - defense_reduction)
             
@@ -387,7 +392,20 @@ class BattleMenu:
             
             return defender_hp
 
+        turn_count = 0
+        max_turns = 10 
+
         while ball1_hp > 0 and ball2_hp > 0:
+            turn_count += 1
+            if turn_count > max_turns:
+                draw_msg = "⚠️ Both sides are exhausted, this round is a draw!"
+                battle_log.append(draw_msg)
+                result["details"].append(draw_msg)
+                self.embed.description = "\n".join(battle_log)
+                await self.message.edit(embed=self.embed)
+                await asyncio.sleep(2)
+                break
+
             if self.is_cancelled:
                 return result
 
@@ -599,124 +617,6 @@ class BattleView(View):
             print(f"Error occurred while cancelling battle: {str(e)}")
             await self.battle.cancel("Battle has been cancelled by player.")
 
-    @app_commands.command()
-    async def add(
-        self,
-        interaction: discord.Interaction,
-        ball: BallInstanceTransform,
-    ):
-        """
-        Add a ball to the battle.
-
-        Parameters
-        ----------
-        ball: BallInstanceTransform
-            The ball you want to add to the battle
-        """
-        if not ball:
-            return
-
-        if not interaction.guild_id:
-            await interaction.response.send_message("Battles can only be conducted in servers.", ephemeral=True)
-            return
-
-        battle = self.get_battle(interaction)
-        if not battle:
-            await interaction.response.send_message("There is no ongoing battle.", ephemeral=True)
-            return
-
-        battler = battle.get_battler(interaction.user)
-        if not battler:
-            await interaction.response.send_message("You are not a participant in this battle.", ephemeral=True)
-            return
-
-        if battler.locked:
-            await interaction.response.send_message("You have already locked your selection, cannot add more balls.", ephemeral=True)
-            return
-
-        if ball.player.discord_id != interaction.user.id:
-            await interaction.response.send_message(
-                "You can only use your own balls in battle.", ephemeral=True
-            )
-            return
-
-        if ball in battler.proposal:
-            await interaction.response.send_message(
-                "This ball is already in your battle lineup.", ephemeral=True
-            )
-            return
-
-        if not battle.can_add_ball(battler):
-            await interaction.response.send_message(
-                f"Your battle lineup has reached the maximum limit ({battle.MAX_BALLS} balls).", ephemeral=True
-            )
-            return
-
-        battler.proposal.append(ball)
-        battler.proposal = battler.proposal[:battle.MAX_BALLS]
-        await interaction.response.send_message(
-            f"{ball.countryball.country} has been added to the battle lineup.", ephemeral=True
-        )
-        await battle.update_message()
-
-    @app_commands.command()
-    async def all(self, interaction: discord.Interaction):
-        """
-        Add all owned balls to the battle, up to 20.
-        """
-        if not interaction.guild_id:
-            await interaction.response.send_message("Battles can only be conducted in servers.", ephemeral=True)
-            return
-
-        battle = self.get_battle(interaction)
-        if not battle:
-            await interaction.response.send_message("There is no ongoing battle.", ephemeral=True)
-            return
-
-        battler = battle.get_battler(interaction.user)
-        if not battler:
-            await interaction.response.send_message("You are not a participant in this battle.", ephemeral=True)
-            return
-
-        if battler.locked:
-            await interaction.response.send_message("You have already locked your selection, cannot add more balls.", ephemeral=True)
-            return
-
-        player = await Player.get(discord_id=interaction.user.id)
-        all_balls = await BallInstance.filter(player=player)
-
-        if not all_balls:
-            await interaction.response.send_message("You don't have any available balls.", ephemeral=True)
-            return
-
-        available_balls = [ball for ball in all_balls if ball not in battler.proposal]
-
-        remaining_slots = battle.MAX_BALLS - len(battler.proposal)
-        if remaining_slots <= 0:
-            await interaction.response.send_message(
-                f"Your battle lineup has reached the maximum limit ({battle.MAX_BALLS} balls).", ephemeral=True
-            )
-            return
-
-        balls_to_add = available_balls[:remaining_slots]
-        battler.proposal.extend(balls_to_add)
-        battler.proposal = battler.proposal[:battle.MAX_BALLS]
-
-        if not balls_to_add:
-            await interaction.response.send_message("All your balls are already in the battle lineup.", ephemeral=True)
-            return
-
-        display_balls = balls_to_add[:10]
-        more_balls = len(balls_to_add) - len(display_balls)
-        display_message = "\n".join(f"{ball.countryball.country}" for ball in display_balls)
-        if more_balls > 0:
-            display_message += f"\n...and {more_balls} more."
-
-        await interaction.response.send_message(
-            f"Added the following balls to the battle lineup:\n{display_message}", ephemeral=True
-        )
-        await battle.update_message()
-
 
 class FightInviteView(View):
     def __init__(self, fight: dict, cog: "Battle"):
@@ -833,3 +733,151 @@ class FightActionView(View):
         for item in self.children:
             item.disabled = True
         await interaction.message.edit(view=self)
+
+
+class CountryballsSource(menus.ListPageSource):
+    def __init__(self, entries: List[BallInstance]):
+        super().__init__(entries, per_page=25)
+
+    async def format_page(self, menu: "CountryballsSelector", balls: List[BallInstance]):
+        menu.set_options(balls)
+        return True  # signal to edit the page
+
+
+class CountryballsSelector(Pages):
+    def __init__(
+        self,
+        interaction: discord.Interaction["BallsDexBot"],
+        balls: List[BallInstance],
+        cog: "BattleCog",
+    ):
+        self.bot = interaction.client
+        self.interaction = interaction
+        source = CountryballsSource(balls)
+        super().__init__(source, interaction=interaction)
+        self.add_item(self.select_ball_menu)
+        self.add_item(self.confirm_button)
+        self.add_item(self.select_all_button)
+        self.add_item(self.clear_button)
+        self.balls_selected: Set[BallInstance] = set()
+        self.cog = cog
+
+    def set_options(self, balls: List[BallInstance]):
+        options: List[discord.SelectOption] = []
+        for ball in balls:
+            emoji = self.bot.get_emoji(int(ball.countryball.emoji_id))
+            favorite = f"{settings.favorited_collectible_emoji} " if ball.favorite else ""
+            special = ball.special_emoji(self.bot, True)
+            options.append(
+                discord.SelectOption(
+                    label=f"{favorite}{special}#{ball.pk:0X} {ball.countryball.country}",
+                    description=f"ATK: {ball.attack} • HP: {ball.health}",
+                    emoji=emoji,
+                    value=f"{ball.pk}",
+                    default=ball in self.balls_selected,
+                )
+            )
+        self.select_ball_menu.options = options
+        self.select_ball_menu.max_values = len(options)
+
+    @discord.ui.select(min_values=1, max_values=25)
+    async def select_ball_menu(
+        self, interaction: discord.Interaction["BallsDexBot"], item: discord.ui.Select
+    ):
+        for value in item.values:
+            ball_instance = await BallInstance.get(id=int(value)).prefetch_related(
+                "ball", "player"
+            )
+            self.balls_selected.add(ball_instance)
+        await interaction.response.defer()
+
+    @discord.ui.button(label="Select Page", style=discord.ButtonStyle.secondary)
+    async def select_all_button(
+        self, interaction: discord.Interaction["BallsDexBot"], button: Button
+    ):
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        for ball in self.select_ball_menu.options:
+            ball_instance = await BallInstance.get(id=int(ball.value)).prefetch_related(
+                "ball", "player"
+            )
+            if ball_instance not in self.balls_selected:
+                self.balls_selected.add(ball_instance)
+        await interaction.followup.send(
+            (
+                f"Selected all {settings.plural_collectible_name} on this page.\n"
+                "Note: Change page to see the updated status."
+            ),
+            ephemeral=True,
+        )
+
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.primary)
+    async def confirm_button(
+        self, interaction: discord.Interaction["BallsDexBot"], button: Button
+    ):
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        battle = self.cog.get_battle(interaction)
+        if not battle:
+            await interaction.followup.send("There is no ongoing battle.", ephemeral=True)
+            return
+
+        battler = battle.get_battler(interaction.user)
+        if not battler:
+            await interaction.followup.send("You are not a participant in this battle.", ephemeral=True)
+            return
+        
+        if battler.locked:
+            await interaction.followup.send("You have already locked your selection, cannot add more balls.", ephemeral=True)
+            return
+
+        if any(ball in battler.proposal for ball in self.balls_selected):
+            await interaction.followup.send(
+                f"Some selected balls are already in your lineup, {settings.plural_collectible_name} selected.",
+                ephemeral=True,
+            )
+            return
+        
+        if len(battler.proposal) + len(self.balls_selected) > battle.MAX_BALLS:
+            await interaction.followup.send(
+                f"You can only select up to {battle.MAX_BALLS} balls.",
+                ephemeral=True
+            )
+            return
+
+        if len(self.balls_selected) == 0:
+            await interaction.followup.send(
+                f"No {settings.plural_collectible_name} selected to add to your lineup.",
+                ephemeral=True,
+            )
+            return
+
+        for ball in self.balls_selected:
+            battler.proposal.append(ball)
+
+        grammar = (
+            f"{settings.collectible_name}"
+            if len(self.balls_selected) == 1
+            else f"{settings.plural_collectible_name}"
+        )
+        await interaction.followup.send(
+            f"Added {len(self.balls_selected)} {grammar} to your battle lineup.", ephemeral=True
+        )
+        await battle.update_message()
+        self.balls_selected.clear()
+        self.stop()
+
+    @discord.ui.button(label="Clear", style=discord.ButtonStyle.danger)
+    async def clear_button(self, interaction: discord.Interaction["BallsDexBot"], button: Button):
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        self.balls_selected.clear()
+        await interaction.followup.send(
+            f"Cleared all currently selected {settings.plural_collectible_name}."
+            f"This does not affect {settings.plural_collectible_name} already added to the battle.\n"
+            f"In some cases, balls on this page may still appear selected, but this is visual only - "
+            "change page to see correct status.",
+            ephemeral=True,
+        )
+
+
+class BulkAddView(CountryballsSelector):
+    async def on_timeout(self) -> None:
+        return await super().on_timeout()
