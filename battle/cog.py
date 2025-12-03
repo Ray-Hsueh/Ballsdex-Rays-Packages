@@ -3,24 +3,20 @@ from discord import app_commands
 from discord.ext import commands
 from typing import TYPE_CHECKING, Optional, cast, Dict
 import random
-import asyncio
-from datetime import datetime
 
 from ballsdex.core.models import BallInstance, Player
 from ballsdex.packages.battle.menu import (
-    BattleMenu, 
-    FightInviteView, 
-    FightActionView, 
-    BulkAddView
+    BattleMenu,
+    BulkAddView,
 )
 from ballsdex.packages.battle.battling_user import BattlingUser
 from ballsdex.settings import settings
+from ballsdex.core.utils.transformers import BallInstanceTransform
+from ballsdex.core.utils.sorting import SortingChoices, sort_balls
 from ballsdex.core.utils.transformers import (
-    BallInstanceTransform,
     BallEnabledTransform,
     SpecialEnabledTransform,
 )
-from ballsdex.core.utils.sorting import SortingChoices, sort_balls
 
 if TYPE_CHECKING:
     from ballsdex.core.bot import BallsDexBot
@@ -30,6 +26,8 @@ class Battle(commands.GroupCog):
     def __init__(self, bot: "BallsDexBot"):
         self.bot = bot
         self.battles = {}
+
+    bulk = app_commands.Group(name="bulk", description="Bulk battle commands")
 
     def get_battle(self, interaction: discord.Interaction) -> Optional[BattleMenu]:
         """
@@ -56,26 +54,26 @@ class Battle(commands.GroupCog):
     @app_commands.command()
     async def begin(self, interaction: discord.Interaction["BallsDexBot"], user: discord.User):
         """
-        Start a battle with the specified user.
+        Start a battle against the provided Discord user.
 
         Parameters
         ----------
         user: discord.User
-            The user you want to battle against
+            Target opponent.
         """
         try:
             await interaction.response.defer(ephemeral=True)
-            await interaction.followup.send("Preparing battle, please wait...", ephemeral=True)
+            await interaction.followup.send("Preparing the battle, please wait...", ephemeral=True)
             if not interaction.guild_id:
-                await interaction.response.send_message("Battles can only be conducted in servers.", ephemeral=True)
+                await interaction.response.send_message("You can only battle inside a server.", ephemeral=True)
                 return
-                
+
             if user.bot:
-                await interaction.response.send_message("Cannot battle against bots.", ephemeral=True)
+                await interaction.response.send_message("You cannot battle bots.", ephemeral=True)
                 return
             if user.id == interaction.user.id:
                 await interaction.response.send_message(
-                    "Cannot battle against yourself.", ephemeral=True
+                    "You cannot battle yourself.", ephemeral=True
                 )
                 return
 
@@ -83,12 +81,12 @@ class Battle(commands.GroupCog):
             if battle:
                 if interaction.user.id in [battle.battler1.user.id, battle.battler2.user.id]:
                     await interaction.response.send_message(
-                        "You are already in an ongoing battle.", ephemeral=True
+                        "You are already part of an active battle.", ephemeral=True
                     )
                     return
                 elif user.id in [battle.battler1.user.id, battle.battler2.user.id]:
                     await interaction.response.send_message(
-                        "The opponent is already in an ongoing battle.", ephemeral=True
+                        "Your opponent is already battling someone else.", ephemeral=True
                     )
                     return
                 else:
@@ -104,22 +102,22 @@ class Battle(commands.GroupCog):
                 self, interaction, BattlingUser(interaction.user, player1), BattlingUser(user, player2)
             )
             self.battles[interaction.guild_id] = battle_menu
-            
+
             await battle_menu.start()
-            
+
         except discord.NotFound:
             try:
-                await interaction.followup.send("Battle started!", ephemeral=True)
-            except:
+                await interaction.followup.send("The battle has started!", ephemeral=True)
+            except Exception:
                 pass
         except Exception as e:
-            print(f"Error occurred while starting battle: {str(e)}")
+            print(f"Failed to start the battle: {str(e)}")
             try:
                 if not interaction.response.is_done():
-                    await interaction.response.send_message("An error occurred while starting the battle, please try again later.", ephemeral=True)
+                    await interaction.response.send_message("An error occurred while starting the battle. Please try again later.", ephemeral=True)
                 else:
-                    await interaction.followup.send("An error occurred while starting the battle, please try again later.", ephemeral=True)
-            except:
+                    await interaction.followup.send("An error occurred while starting the battle. Please try again later.", ephemeral=True)
+            except Exception:
                 pass
 
     @app_commands.command()
@@ -129,32 +127,32 @@ class Battle(commands.GroupCog):
         ball: BallInstanceTransform,
     ):
         """
-        Add a ball to the battle.
+        Add a single ball to your battle roster.
 
         Parameters
         ----------
         ball: BallInstanceTransform
-            The ball you want to add to the battle
+            Ball to include.
         """
         if not ball:
             return
 
         if not interaction.guild_id:
-            await interaction.response.send_message("Battles can only be conducted in servers.", ephemeral=True)
+            await interaction.response.send_message("You can only battle inside a server.", ephemeral=True)
             return
 
         battle = self.get_battle(interaction)
         if not battle:
-            await interaction.response.send_message("There is no ongoing battle.", ephemeral=True)
+            await interaction.response.send_message("There is no ongoing battle right now.", ephemeral=True)
             return
 
         battler = battle.get_battler(interaction.user)
         if not battler:
-            await interaction.response.send_message("You are not a participant in this battle.", ephemeral=True)
+            await interaction.response.send_message("You are not part of this battle.", ephemeral=True)
             return
 
         if battler.locked:
-            await interaction.response.send_message("You have already locked your selection, cannot add more balls.", ephemeral=True)
+            await interaction.response.send_message("Your selection is locked and cannot be updated.", ephemeral=True)
             return
 
         if ball.player.discord_id != interaction.user.id:
@@ -165,13 +163,13 @@ class Battle(commands.GroupCog):
 
         if ball in battler.proposal:
             await interaction.response.send_message(
-                "This ball is already in your battle lineup.", ephemeral=True
+                "This ball is already in your battle roster.", ephemeral=True
             )
             return
 
         battler.proposal.append(ball)
         await interaction.response.send_message(
-            f"{ball.countryball.country} has been added to the battle lineup.", ephemeral=True
+            f"{ball.countryball.country} has been added to your roster.", ephemeral=True
         )
         await battle.update_message()
 
@@ -182,86 +180,86 @@ class Battle(commands.GroupCog):
         ball: BallInstanceTransform,
     ):
         """
-        Remove a ball from the battle.
+        Remove a ball from your battle roster.
 
         Parameters
         ----------
         ball: BallInstanceTransform
-            The ball you want to remove from the battle
+            Ball to remove.
         """
         if not ball:
             return
 
         if not interaction.guild_id:
-            await interaction.response.send_message("Battles can only be conducted in servers.", ephemeral=True)
+            await interaction.response.send_message("You can only battle inside a server.", ephemeral=True)
             return
 
         battle = self.get_battle(interaction)
         if not battle:
-            await interaction.response.send_message("There is no ongoing battle.", ephemeral=True)
+            await interaction.response.send_message("There is no ongoing battle right now.", ephemeral=True)
             return
 
         battler = battle.get_battler(interaction.user)
         if not battler:
-            await interaction.response.send_message("You are not a participant in this battle.", ephemeral=True)
+            await interaction.response.send_message("You are not part of this battle.", ephemeral=True)
             return
 
         if battler.locked:
-            await interaction.response.send_message("You have already locked your selection, cannot remove balls.", ephemeral=True)
+            await interaction.response.send_message("Your selection is locked and cannot be updated.", ephemeral=True)
             return
 
         if ball not in battler.proposal:
             await interaction.response.send_message(
-                "This ball is not in your battle lineup.", ephemeral=True
+                "This ball is not in your battle roster.", ephemeral=True
             )
             return
 
         battler.proposal.remove(ball)
         await interaction.response.send_message(
-            f"{ball.countryball.country} has been removed from the battle lineup.", ephemeral=True
+            f"{ball.countryball.country} has been removed from your roster.", ephemeral=True
         )
         await battle.update_message()
 
     @app_commands.command()
     async def all(self, interaction: discord.Interaction):
         """
-        Randomly select up to 10 balls to add to the battle.
+        Randomly add up to ten balls to your battle roster.
         """
         if not interaction.guild_id:
-            await interaction.response.send_message("Battles can only be conducted in servers.", ephemeral=True)
+            await interaction.response.send_message("You can only battle inside a server.", ephemeral=True)
             return
 
         battle = self.get_battle(interaction)
         if not battle:
-            await interaction.response.send_message("There is no ongoing battle.", ephemeral=True)
+            await interaction.response.send_message("There is no ongoing battle right now.", ephemeral=True)
             return
 
         battler = battle.get_battler(interaction.user)
         if not battler:
-            await interaction.response.send_message("You are not a participant in this battle.", ephemeral=True)
+            await interaction.response.send_message("You are not part of this battle.", ephemeral=True)
             return
 
         if battler.locked:
-            await interaction.response.send_message("You have already locked your selection, cannot add more balls.", ephemeral=True)
+            await interaction.response.send_message("Your selection is locked and cannot be updated.", ephemeral=True)
             return
 
         player = await Player.get(discord_id=interaction.user.id)
         all_balls = await BallInstance.filter(player=player)
 
         if not all_balls:
-            await interaction.response.send_message("You don't have any available balls.", ephemeral=True)
+            await interaction.response.send_message("You do not own any usable balls.", ephemeral=True)
             return
 
         available_balls = [ball for ball in all_balls if ball not in battler.proposal]
 
         if not available_balls:
-            await interaction.response.send_message("All your balls are already in the battle lineup.", ephemeral=True)
+            await interaction.response.send_message("Every ball you own is already in your roster.", ephemeral=True)
             return
 
         remaining_slots = battle.MAX_BALLS - len(battler.proposal)
         if remaining_slots <= 0:
             await interaction.response.send_message(
-                f"Your battle lineup has reached the maximum limit ({battle.MAX_BALLS} balls).", ephemeral=True
+                f"Your roster already reached the maximum of {battle.MAX_BALLS} balls.", ephemeral=True
             )
             return
 
@@ -277,50 +275,50 @@ class Battle(commands.GroupCog):
             display_message += f"\n...and {more_balls} more."
 
         await interaction.response.send_message(
-            f"Randomly selected the following balls for the battle lineup:\n{display_message}", ephemeral=True
+            f"Randomly selected the following balls:\n{display_message}", ephemeral=True
         )
         await battle.update_message()
 
     @app_commands.command()
     async def best(self, interaction: discord.Interaction):
         """
-        Select your strongest 10 balls to add to the battle.
+        Add up to ten of your strongest balls to the battle.
         """
         if not interaction.guild_id:
-            await interaction.response.send_message("Battles can only be conducted in servers.", ephemeral=True)
+            await interaction.response.send_message("You can only battle inside a server.", ephemeral=True)
             return
 
         battle = self.get_battle(interaction)
         if not battle:
-            await interaction.response.send_message("There is no ongoing battle.", ephemeral=True)
+            await interaction.response.send_message("There is no ongoing battle right now.", ephemeral=True)
             return
 
         battler = battle.get_battler(interaction.user)
         if not battler:
-            await interaction.response.send_message("You are not a participant in this battle.", ephemeral=True)
+            await interaction.response.send_message("You are not part of this battle.", ephemeral=True)
             return
 
         if battler.locked:
-            await interaction.response.send_message("You have already locked your selection, cannot add more balls.", ephemeral=True)
+            await interaction.response.send_message("Your selection is locked and cannot be updated.", ephemeral=True)
             return
 
         player = await Player.get(discord_id=interaction.user.id)
         all_balls = await BallInstance.filter(player=player)
 
         if not all_balls:
-            await interaction.response.send_message("You don't have any available balls.", ephemeral=True)
+            await interaction.response.send_message("You do not own any usable balls.", ephemeral=True)
             return
 
         available_balls = [ball for ball in all_balls if ball not in battler.proposal]
 
         if not available_balls:
-            await interaction.response.send_message("All your balls are already in the battle lineup.", ephemeral=True)
+            await interaction.response.send_message("Every ball you own is already in your roster.", ephemeral=True)
             return
 
         remaining_slots = battle.MAX_BALLS - len(battler.proposal)
         if remaining_slots <= 0:
             await interaction.response.send_message(
-                f"Your battle lineup has reached the maximum limit ({battle.MAX_BALLS} balls).", ephemeral=True
+                f"Your roster already reached the maximum of {battle.MAX_BALLS} balls.", ephemeral=True
             )
             return
 
@@ -339,7 +337,7 @@ class Battle(commands.GroupCog):
             display_message += f"\n...and {more_balls} more."
 
         await interaction.response.send_message(
-            f"Selected the following strongest balls for the battle lineup:\n{display_message}", ephemeral=True
+            f"The following strongest balls were selected:\n{display_message}", ephemeral=True
         )
         await battle.update_message()
 
@@ -352,30 +350,30 @@ class Battle(commands.GroupCog):
         special: SpecialEnabledTransform | None = None,
     ):
         """
-        Add multiple balls to the battle using search filters.
+        Add many balls at once using search filters.
 
         Parameters
         ----------
         countryball: Ball
-            Filter by specific countryball.
+            Filter on a specific ball ID.
         sort: SortingChoices
-            Sort the balls (useful to see duplicates).
+            Sorting applied before display.
         special: Special
-            Filter by special event background.
+            Filter by special event flag.
         """
         await interaction.response.defer(ephemeral=True, thinking=True)
         battle = self.get_battle(interaction)
         if not battle:
-            await interaction.followup.send("There is no ongoing battle.", ephemeral=True)
+            await interaction.followup.send("There is no ongoing battle right now.", ephemeral=True)
             return
 
         battler = battle.get_battler(interaction.user)
         if not battler:
-            await interaction.followup.send("You are not a participant in this battle.", ephemeral=True)
+            await interaction.followup.send("You are not part of this battle.", ephemeral=True)
             return
         
         if battler.locked:
-            await interaction.followup.send("You have already locked your selection, cannot add more balls.", ephemeral=True)
+            await interaction.followup.send("Your selection is locked and cannot be updated.", ephemeral=True)
             return
 
         query = BallInstance.filter(player__discord_id=interaction.user.id)
@@ -388,12 +386,12 @@ class Battle(commands.GroupCog):
         balls = await query
         if not balls:
             await interaction.followup.send(
-                f"No {settings.plural_collectible_name} found matching criteria.", ephemeral=True
+                f"No {settings.plural_collectible_name} matched your filters.", ephemeral=True
             )
             return
         
         view = BulkAddView(interaction, balls, self)
         await view.start(
-            content=f"Select the {settings.plural_collectible_name} you want to add to the battle.\n"
-            "Note: Selection clears when changing pages, but confirmed balls are saved."
+            content=f"Pick the {settings.plural_collectible_name} you want to bring to battle."
+            " Switching pages clears the preview but keeps previously selected balls."
         )

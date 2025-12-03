@@ -4,3 +4,4 @@
 ### And there are the following brand new commands:
 - `/battle best` Automatically selects your ten strongest balls.
 - `/battle all` Automatically randomly selects your ten balls.
+- `/battle bulk` For when you want to select a lot of balls at once.

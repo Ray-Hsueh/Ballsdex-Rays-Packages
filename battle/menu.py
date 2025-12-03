@@ -47,23 +47,20 @@ class BattleMenu:
         return None
 
     def can_add_ball(self, battler: BattlingUser) -> bool:
-        """
-        Check if more balls can be added.
-        """
+        """Return True if the battler still has room for more balls."""
         return len(battler.proposal) < self.MAX_BALLS
 
     def _generate_embed(self):
         self.embed.title = f"{settings.plural_collectible_name.title()} Battle"
         self.embed.color = discord.Colour.blurple()
         self.embed.description = (
-            f"Select the {settings.plural_collectible_name} you want to use in battle.\n"
-            "After preparation is complete, click the lock button below to confirm your selection.\n\n"
-            f"*You can select up to {self.MAX_BALLS} balls.*\n"
-            "*This battle will timeout after 30 minutes.*"
+            f"Pick the {settings.plural_collectible_name} you want to bring.\n"
+            "Once you are ready, lock your selection using the button below.\n\n"
+            f"*You can choose up to {self.MAX_BALLS} balls.*\n"
+            "*This battle times out after 30 minutes.*"
         )
         self.embed.set_footer(
-            text="This message updates every 15 seconds, "
-            "you can continue adjusting your selection."
+            text="This message refreshes every 15 seconds so you can keep adjusting your roster."
         )
         self.embed.clear_fields()
 
@@ -79,12 +76,12 @@ class BattleMenu:
             return display_message or "No balls selected yet."
 
         self.embed.add_field(
-            name=f"{self.battler1.user.display_name}'s Battle Lineup",
+            name=f"{self.battler1.user.display_name} roster",
             value=format_proposal(self.battler1.proposal),
             inline=True,
         )
         self.embed.add_field(
-            name=f"{self.battler2.user.display_name}'s Battle Lineup",
+            name=f"{self.battler2.user.display_name} roster",
             value=format_proposal(self.battler2.proposal),
             inline=True,
         )
@@ -94,9 +91,7 @@ class BattleMenu:
         await self.message.edit(embed=self.embed)
 
     async def update_message_loop(self):
-        """
-        Loop task that updates menu content every 15 seconds.
-        """
+        """Background task that refreshes the battle embed every 15 seconds."""
         assert self.task
         start_time = discord.utils.utcnow()
         timeout_duration = timedelta(minutes=30)
@@ -112,8 +107,8 @@ class BattleMenu:
                 if not warning_sent and elapsed_time >= warning_duration:
                     warning_sent = True
                     warning_msg = (
-                        f"⚠️ Battle will timeout in {int(remaining_time.total_seconds() / 60) + 1} minutes!\n"
-                        "Please complete your selection soon."
+                        f"⚠️ This battle will time out in {int(remaining_time.total_seconds() / 60) + 1} minutes!\n"
+                        "Please finalize your selection."
                     )
                     self.embed.description = warning_msg
                     self.embed.color = discord.Colour.orange()
@@ -128,34 +123,34 @@ class BattleMenu:
                             winner = self.battler1.user if self.battler1.locked else self.battler2.user
                             loser = self.battler2.user if self.battler1.locked else self.battler1.user
                             self.embed.description = (
-                                f"⏰ Battle has timed out!\n\n"
-                                f"Since {loser.mention} did not complete their selection in time,\n"
-                                f"{winner.mention} automatically wins!"
+                                f"⏰ The battle timed out!\n\n"
+                                f"{loser.mention} did not finish in time,\n"
+                                f"so {winner.mention} wins by default."
                             )
                         else:
                             self.embed.description = (
-                                f"⏰ Battle has timed out!\n\n"
-                                f"Since neither player completed their selection in time,\n"
-                                "the battle has been automatically cancelled."
+                                f"⏰ The battle timed out!\n\n"
+                                f"Neither player locked their roster in time,\n"
+                                "so the battle was cancelled."
                             )
                         self.embed.color = discord.Colour.red()
                         await self.message.edit(embed=self.embed)
-                        await self.cancel("Battle has timed out.")
+                        await self.cancel("The battle timed out.")
                         return
                     except (discord.NotFound, discord.Forbidden):
-                        await self.cancel("Battle has timed out, but unable to update message.")
+                        await self.cancel("The battle timed out but the message could not be updated.")
                         return
 
                 try:
                     await self.update_message()
                 except discord.NotFound:
-                    await self.cancel("Battle message has been deleted.")
+                    await self.cancel("The battle message has been deleted.")
                     return
                 except discord.Forbidden:
-                    await self.cancel("Bot doesn't have sufficient permissions to update message.")
+                    await self.cancel("The bot lacks permission to update the battle message.")
                     return
                 except Exception as e:
-                    print(f"Error occurred while updating message: {str(e)}")
+                    print(f"Failed to refresh battle message: {str(e)}")
                     await asyncio.sleep(15)
                     continue
 
@@ -167,57 +162,52 @@ class BattleMenu:
                 self.cog.remove_battle(self.channel.guild.id)
 
     async def start(self):
-        """
-        Start the battle, send initial message and open selection.
-        """
+        """Initialize the battle message and controls."""
         try:
             self._generate_embed()
             self.message = await self.channel.send(
-                content=f"🎮 {self.battler1.user.mention} has challenged {self.battler2.user.mention} to a battle!\n"
-                "Please use `/battle add` command to select your balls, or use `/battle all` for random selection.\n"
-                "After selection is complete, click the 'Lock Selection' button below to confirm.",
+                content=f"🎮 {self.battler1.user.mention} has challenged {self.battler2.user.mention}!\n"
+                "Use `/battle add` to pick specific balls or `/battle all` for random picks.\n"
+                "Lock in your roster once you are satisfied.",
                 embed=self.embed,
                 view=self.current_view,
                 allowed_mentions=discord.AllowedMentions(users=[self.battler1.user, self.battler2.user]),
             )
             self.task = self.bot.loop.create_task(self.update_message_loop())
-            
+
             help_embed = discord.Embed(
-                title="Battle Instructions",
+                title="Battle instructions",
                 description=(
-                    "1. Use `/battle add` command to select your balls\n"
-                    "2. Use `/battle all` command to randomly select balls\n"
-                    "3. Use `/battle best` command to select your strongest 10 balls\n"
-                    "4. Use `/battle bulk add` to open the bulk selection menu\n"
-                    "5. After selection is complete, click the 'Lock Selection' button\n"
-                    "6. When both players have locked, the battle will automatically begin\n"
-                    "7. Battle will automatically timeout after 30 minutes\n\n"
-                    "📊 Damage Calculation Mechanism:\n"
-                    "• Base damage = Attack power\n"
-                    "• Defense reduction: When opponent's HP is higher, up to 20% damage reduction\n"
-                    "• Critical hit: 8% base critical rate, higher attack power increases critical rate\n"
-                    "• Critical damage is 1.3x base damage\n"
-                    "• Battle messages will show actual defense reduction percentage"
+                    "1. Use `/battle add` to choose exact balls.\n"
+                    "2. Use `/battle all` to fill slots at random.\n"
+                    "3. Use `/battle best` to pick your ten strongest balls.\n"
+                    "4. Use `/battle bulk add` for the multi-select view.\n"
+                    "5. Lock your selection once you are ready.\n"
+                    "6. The battle begins automatically once both sides lock.\n"
+                    "7. The session times out after 30 minutes.\n\n"
+                    "📊 Damage model:\n"
+                    "• Base damage equals attack.\n"
+                    "• Defense mitigation removes up to 20% when HP greatly exceeds attack.\n"
+                    "• Critical chance starts at 8% and scales with attack advantage.\n"
+                    "• Critical damage deals 1.3x the mitigated damage (minimum attack * 1.3).\n"
+                    "• Each log entry displays the applied mitigation."
                 ),
                 color=discord.Colour.blue()
             )
             help_embed.set_footer(text="Good luck!")
             try:
                 await self.channel.send(embed=help_embed)
-            except:
+            except Exception:
                 pass
                 
         except Exception as e:
-            print(f"Error occurred while starting battle: {str(e)}")
+            print(f"Failed to start the battle: {str(e)}")
             raise
 
-    async def cancel(self, reason: str = "Battle has been cancelled."):
-        """
-        Immediately cancel the battle.
-        """
+    async def cancel(self, reason: str = "The battle was cancelled."):
+        """Cancel the battle immediately and disable controls."""
         try:
             self.is_cancelled = True
-            
             if self.task and not self.task.done():
                 self.task.cancel()
                 try:
@@ -238,22 +228,20 @@ class BattleMenu:
                 except (discord.NotFound, discord.Forbidden):
                     pass
         except Exception as e:
-            print(f"Error occurred while cancelling battle: {str(e)}")
+            print(f"Failed to cancel the battle: {str(e)}")
         finally:
             self.cog.remove_battle(self.channel.guild.id)
 
     async def commence_battle(self):
-        """
-        Start the battle between two players.
-        """
+        """Run the battle simulation between both players."""
         if not self.battler1.proposal and not self.battler2.proposal:
-            await self._display_battle_results([], None, "Neither player selected any balls!")
+            await self._display_battle_results([], None, "Both players forgot to pick a team!")
             return
-        elif not self.battler1.proposal:
-            await self._display_battle_results([], self.battler2.user, f"{self.battler1.user.display_name} didn't select any balls!")
+        if not self.battler1.proposal:
+            await self._display_battle_results([], self.battler2.user, f"{self.battler1.user.display_name} did not select any balls!")
             return
-        elif not self.battler2.proposal:
-            await self._display_battle_results([], self.battler1.user, f"{self.battler2.user.display_name} didn't select any balls!")
+        if not self.battler2.proposal:
+            await self._display_battle_results([], self.battler1.user, f"{self.battler2.user.display_name} did not select any balls!")
             return
 
         if self.task and not self.task.done():
@@ -263,7 +251,7 @@ class BattleMenu:
             except asyncio.CancelledError:
                 pass
 
-        self.embed.description = "🎮 Battle begins!\n\n"
+        self.embed.description = "🎮 The battle begins!\n\n"
         await self.message.edit(embed=self.embed)
         await asyncio.sleep(2)
 
@@ -282,7 +270,11 @@ class BattleMenu:
             elif round_result["winner"] == self.battler2.user:
                 battler2_wins += 1
                 
-            score_msg = f"\n\n📊 Current Score:\n{self.battler1.user.display_name}: {battler1_wins} wins\n{self.battler2.user.display_name}: {battler2_wins} wins"
+            score_msg = (
+                f"\n\n📊 Score update:\n"
+                f"{self.battler1.user.display_name}: {battler1_wins} wins\n"
+                f"{self.battler2.user.display_name}: {battler2_wins} wins"
+            )
             self.embed.description += score_msg
             await self.message.edit(embed=self.embed)
             await asyncio.sleep(4)
@@ -298,9 +290,7 @@ class BattleMenu:
         self.cog.remove_battle(self.channel.guild.id)
 
     async def _battle_round(self, round_number: int, ball1, ball2):
-        """
-        Simulate a single round of battle.
-        """
+        """Simulate a single battle round."""
         result = {
             "round": round_number,
             "ball1": ball1,
@@ -312,8 +302,7 @@ class BattleMenu:
         if self.is_cancelled:
             return result
 
-        battle_log = []
-        
+        battle_log: list[str] = []
         round_start = f"Round {round_number} begins!\n"
         round_start += f"⚔️ {ball1.countryball.country} (ATK:{ball1.attack} HP:{ball1.health}) vs {ball2.countryball.country} (ATK:{ball2.attack} HP:{ball2.health})"
         battle_log.append(round_start)
@@ -321,12 +310,16 @@ class BattleMenu:
         self.embed.description = "\n".join(battle_log)
         await self.message.edit(embed=self.embed)
         await asyncio.sleep(2)
-
+        
         ball1_hp = ball1.health
         ball2_hp = ball2.health
         
         first_attacker = random.choice([1, 2])
-        first_attack_msg = f"🎲 {'First attack: ' + ball1.countryball.country if first_attacker == 1 else 'First attack: ' + ball2.countryball.country}"
+        first_attack_msg = (
+            f"🎲 First strike: {ball1.countryball.country}"
+            if first_attacker == 1
+            else f"🎲 First strike: {ball2.countryball.country}"
+        )
         battle_log.append(first_attack_msg)
         
         self.embed.description = "\n".join(battle_log)
@@ -341,7 +334,7 @@ class BattleMenu:
             is_crit = random.random() < crit_chance
             damage_multiplier = 1.3 if is_crit else 1.0
             
-            defense_ratio = defender.health / (max(attacker.attack, 1) * 4) 
+            defense_ratio = defender.health / (max(attacker.attack, 1) * 4)
             defense_reduction = min(defense_ratio, 0.2)
             base_damage = attacker.attack * (1 - defense_reduction)
             
@@ -356,33 +349,31 @@ class BattleMenu:
             
             attack_verbs = [
                 "deals",
-                "inflicts",
-                "strikes",
                 "delivers",
-                "causes",
-                "brings",
-                "applies",
-                "bursts",
-                "releases",
-                "hits",
-                "sends",
-                "outputs",
-                "emits",
-                "generates"
+                "unleashes",
+                "strikes for",
+                "hits for",
+                "inflicts",
+                "lands",
+                "bursts for",
+                "lashes out for",
+                "smashes for",
+                "hammers for",
+                "slashes for",
             ]
             
             attack_emoji = random.choice(attack_emojis["crit"] if is_crit else attack_emojis["normal"])
             attack_msg = f"{attack_emoji} {attacker.countryball.country} "
             
             if is_crit:
-                attack_msg += f"CRITICAL HIT {damage:.0f} damage!"
+                attack_msg += f"crits for {damage:.0f} damage!"
             else:
                 attack_msg += f"{random.choice(attack_verbs)} {damage:.0f} damage!"
             
             if defense_reduction > 0:
-                attack_msg += f" (Defense reduction: {defense_reduction*100:.0f}%)"
+                attack_msg += f" (mitigation: {defense_reduction*100:.0f}%)"
             
-            attack_msg += f" (Remaining HP: {max(0, defender_hp):.0f})"
+            attack_msg += f" (defender HP: {max(0, defender_hp):.0f})"
             battle_log.append(attack_msg)
             result["details"].append(attack_msg)
             
@@ -393,26 +384,25 @@ class BattleMenu:
             return defender_hp
 
         turn_count = 0
-        max_turns = 10 
+        max_turns = 10
 
         while ball1_hp > 0 and ball2_hp > 0:
             turn_count += 1
             if turn_count > max_turns:
-                draw_msg = "⚠️ Both sides are exhausted, this round is a draw!"
+                draw_msg = "⚠️ Both sides are exhausted. This round ends in a draw."
                 battle_log.append(draw_msg)
                 result["details"].append(draw_msg)
                 self.embed.description = "\n".join(battle_log)
                 await self.message.edit(embed=self.embed)
                 await asyncio.sleep(2)
                 break
-
             if self.is_cancelled:
                 return result
 
             if first_attacker == 1:
                 ball2_hp = await perform_attack(ball1, ball2, ball1_hp, ball2_hp)
                 if ball2_hp <= 0:
-                    defeat_msg = f"💀 {ball2.countryball.country} has fallen!"
+                    defeat_msg = f"💀 {ball2.countryball.country} is down!"
                     battle_log.append(defeat_msg)
                     result["details"].append(defeat_msg)
                     result["winner"] = self.battler1.user
@@ -426,7 +416,7 @@ class BattleMenu:
                 
                 ball1_hp = await perform_attack(ball2, ball1, ball2_hp, ball1_hp)
                 if ball1_hp <= 0:
-                    defeat_msg = f"💀 {ball1.countryball.country} has fallen!"
+                    defeat_msg = f"💀 {ball1.countryball.country} is down!"
                     battle_log.append(defeat_msg)
                     result["details"].append(defeat_msg)
                     result["winner"] = self.battler2.user
@@ -437,7 +427,7 @@ class BattleMenu:
             else:
                 ball1_hp = await perform_attack(ball2, ball1, ball2_hp, ball1_hp)
                 if ball1_hp <= 0:
-                    defeat_msg = f"💀 {ball1.countryball.country} has fallen!"
+                    defeat_msg = f"💀 {ball1.countryball.country} is down!"
                     battle_log.append(defeat_msg)
                     result["details"].append(defeat_msg)
                     result["winner"] = self.battler2.user
@@ -451,7 +441,7 @@ class BattleMenu:
                 
                 ball2_hp = await perform_attack(ball1, ball2, ball1_hp, ball2_hp)
                 if ball2_hp <= 0:
-                    defeat_msg = f"💀 {ball2.countryball.country} has fallen!"
+                    defeat_msg = f"💀 {ball2.countryball.country} is down!"
                     battle_log.append(defeat_msg)
                     result["details"].append(defeat_msg)
                     result["winner"] = self.battler1.user
@@ -463,12 +453,12 @@ class BattleMenu:
         if result["winner"] and not self.is_cancelled:
             victory_emojis = ["🏆", "👑", "🏅", "✨", "🌟", "💫", "🎉", "🎊"]
             victory_phrases = [
-                "wins this round!",
-                "achieves victory!",
-                "demonstrates powerful strength!",
-                "perfectly controls the battlefield!",
-                "wins with brilliant tactics!",
-                "stands out in the fierce duel!"
+                "wins the round!",
+                "secures the victory!",
+                "dominates this duel!",
+                "controls the battlefield!",
+                "outplays the opponent!",
+                "emerges triumphant!",
             ]
             battle_log.append(f"\n{random.choice(victory_emojis)} {result['winner'].display_name} {random.choice(victory_phrases)}")
             self.embed.description = "\n".join(battle_log)
@@ -478,72 +468,67 @@ class BattleMenu:
         return result
 
     async def _display_battle_results(self, rounds: List[dict], winner: Optional[discord.User], custom_message: str = None):
-        """
-        Display battle results.
-        """
+        """Display the final outcome of the battle."""
         try:
             if custom_message:
                 self.embed.description = custom_message
             else:
-                description = "🏆 Battle ended!\n\n"
+                description = "🏆 The battle is over!\n\n"
                 
                 total_rounds = len(rounds)
                 if total_rounds > 0:
-                    description += f"Total rounds fought: {total_rounds}\n\n"
+                    description += f"{total_rounds} rounds were played.\n\n"
                     
                     battler1_wins = sum(1 for r in rounds if r["winner"] == self.battler1.user)
                     battler2_wins = sum(1 for r in rounds if r["winner"] == self.battler2.user)
                     
-                    description += f"📊 Battle Statistics:\n"
+                    description += "📊 Scoreboard:\n"
                     description += f"{self.battler1.user.display_name}: {battler1_wins} wins\n"
                     description += f"{self.battler2.user.display_name}: {battler2_wins} wins\n\n"
                     
                     if winner:
                         winner_wins = battler1_wins if winner == self.battler1.user else battler2_wins
                         victory_phrases = [
-                            "achieves overwhelming victory",
-                            "demonstrates amazing combat skills",
-                            "perfectly controls the battlefield",
-                            "wins with brilliant tactics",
-                            "stands out in the fierce duel",
-                            "shows exceptional combat wisdom"
+                            "secures a decisive victory",
+                            "showcases impressive tactics",
+                            "controls the fight from start to finish",
+                            "wins with flawless execution",
+                            "outmaneuvers the opponent brilliantly",
+                            "demonstrates outstanding battle sense",
                         ]
-                        description += f"🎉 Congratulations {winner.display_name} {random.choice(victory_phrases)}!\n"
-                        description += f"Won {winner_wins} exciting victories!"
+                        description += f"🎉 Congratulations to {winner.display_name}, who {random.choice(victory_phrases)}!\n"
+                        description += f"They close the battle with {winner_wins} winning rounds."
                     else:
-                        description += "🤝 Both sides are evenly matched, it's a draw!"
+                        description += "🤝 Both players are evenly matched. It's a draw!"
                         
                         draw_phrases = [
-                            "This was an exciting duel!",
-                            "Both sides demonstrated excellent strength!",
-                            "Looking forward to the next duel!",
-                            "This was an unforgettable battle!"
+                            "What a spectacular duel!",
+                            "Both sides showed incredible strength.",
+                            "We cannot wait for the rematch.",
+                            "This was a memorable fight!",
                         ]
                         description += f"\n\n{random.choice(draw_phrases)}"
 
                 self.embed.description = description
 
-            if winner:
-                self.embed.color = discord.Colour.green()
-            else:
-                self.embed.color = discord.Colour.orange()
+            self.embed.color = discord.Colour.green() if winner else discord.Colour.orange()
                 
             try:
                 await self.message.edit(embed=self.embed, view=None)
             except discord.NotFound:
-                print("Battle result message has been deleted")
+                print("Battle result message was deleted.")
             except discord.Forbidden:
-                print("No permission to update battle result message")
+                print("Missing permissions to update the battle result message.")
             except Exception as e:
-                print(f"Error occurred while updating battle results: {str(e)}")
+                print(f"Failed to update battle result message: {str(e)}")
                 
         except Exception as e:
-            print(f"Error occurred while displaying battle results: {str(e)}")
+            print(f"Failed to render battle results: {str(e)}")
             try:
-                self.embed.description = "🏆 Battle has ended!"
+                self.embed.description = "🏆 The battle has ended."
                 self.embed.color = discord.Colour.orange()
                 await self.message.edit(embed=self.embed, view=None)
-            except:
+            except Exception:
                 pass
 
 
@@ -557,23 +542,23 @@ class BattleView(View):
             self.battle.get_battler(interaction.user)
         except RuntimeError:
             await interaction.response.send_message(
-                "You cannot participate in this battle.", ephemeral=True
+                "You cannot interact with this battle.", ephemeral=True
             )
             return False
         else:
             return True
 
-    @discord.ui.button(label="Lock Selection", emoji="\N{LOCK}", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="Lock selection", emoji="\N{LOCK}", style=discord.ButtonStyle.success)
     async def lock(self, interaction: discord.Interaction, button: Button):
         battler = self.battle.get_battler(interaction.user)
         if not battler:
             await interaction.response.send_message(
-                "You are not a participant in this battle.", ephemeral=True
+                "You are not part of this battle.", ephemeral=True
             )
             return
         if battler.locked:
             await interaction.response.send_message(
-                "You have already locked your selection!", ephemeral=True
+                "Your roster is already locked.", ephemeral=True
             )
             return
         await interaction.response.defer(thinking=True, ephemeral=True)
@@ -581,158 +566,157 @@ class BattleView(View):
         await self.battle.update_message()
         if self.battle.battler1.locked and self.battle.battler2.locked:
             await interaction.followup.send(
-                "Both players have locked their selections. Battle is about to begin!",
+                "Both players are locked in. The battle will begin shortly!",
                 ephemeral=True,
             )
             await self.battle.commence_battle()
         else:
             await interaction.followup.send(
-                "Your selection has been locked. "
-                "Waiting for the opponent to lock their selection.",
+                "Your selection is now locked. Waiting for your opponent.",
                 ephemeral=True,
             )
 
-    @discord.ui.button(label="Cancel Battle", emoji="\N{HEAVY MULTIPLICATION X}", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="Cancel battle", emoji="\N{HEAVY MULTIPLICATION X}", style=discord.ButtonStyle.danger)
     async def cancel(self, interaction: discord.Interaction, button: Button):
         if not self.battle.get_battler(interaction.user):
             try:
                 await interaction.response.send_message(
-                    "Only battle participants can cancel the battle.", ephemeral=True
+                    "Only participants can cancel the battle.", ephemeral=True
                 )
             except discord.NotFound:
                 pass
             return
             
         try:
-            await self.battle.cancel("Battle has been cancelled by player.")
-            
+            await self.battle.cancel("The battle was cancelled by a player.")
             try:
-                await interaction.response.send_message("Battle has been cancelled.", ephemeral=True)
+                await interaction.response.send_message("The battle has been cancelled.", ephemeral=True)
             except discord.NotFound:
                 try:
-                    await interaction.followup.send("Battle has been cancelled.", ephemeral=True)
+                    await interaction.followup.send("The battle has been cancelled.", ephemeral=True)
                 except discord.NotFound:
                     pass
         except Exception as e:
-            print(f"Error occurred while cancelling battle: {str(e)}")
-            await self.battle.cancel("Battle has been cancelled by player.")
+            print(f"Failed to cancel battle via button: {str(e)}")
+            await self.battle.cancel("The battle was cancelled by a player.")
 
+    @app_commands.command()
+    async def add(
+        self,
+        interaction: discord.Interaction,
+        ball: BallInstanceTransform,
+    ):
+        """
+        Add a ball to the battle roster.
 
-class FightInviteView(View):
-    def __init__(self, fight: dict, cog: "Battle"):
-        super().__init__(timeout=30)
-        self.fight = fight
-        self.cog = cog
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id not in [self.fight["challenger"].id, self.fight["opponent"].id]:
-            await interaction.response.send_message("Only duel participants can use these buttons.", ephemeral=True)
-            return False
-        return True
-
-    @discord.ui.button(label="Accept", style=discord.ButtonStyle.success)
-    async def accept(self, interaction: discord.Interaction, button: Button):
-        if interaction.user.id != self.fight["opponent"].id:
-            await interaction.response.send_message("Only the invited player can accept the duel.", ephemeral=True)
+        Parameters
+        ----------
+        ball: BallInstanceTransform
+            Ball to include.
+        """
+        if not ball:
             return
 
-        self.fight["status"] = "active"
-
-        embed = discord.Embed(
-            title="Duel Accepted!",
-            description=f"{self.fight['opponent'].mention} accepted the duel!\n\n"
-                       f"Both players please use `/battle fight select` command to select a ball for the duel.",
-            color=discord.Colour.green()
-        )
-        await interaction.response.edit_message(embed=embed, view=None)
-
-        self.cog.bot.loop.create_task(self._check_selection_timeout())
-
-    @discord.ui.button(label="Decline", style=discord.ButtonStyle.danger)
-    async def decline(self, interaction: discord.Interaction, button: Button):
-        if interaction.user.id != self.fight["opponent"].id:
-            await interaction.response.send_message("Only the invited player can decline the duel.", ephemeral=True)
+        if not interaction.guild_id:
+            await interaction.response.send_message("You can only battle inside a server.", ephemeral=True)
             return
 
-        await self.cog._cancel_fight(interaction.guild_id, f"{self.fight['opponent'].mention} declined the duel.")
-        await interaction.response.edit_message(view=None)
+        battle = self.get_battle(interaction)
+        if not battle:
+            await interaction.response.send_message("There is no ongoing battle right now.", ephemeral=True)
+            return
 
-    async def on_timeout(self):
-        if self.fight["status"] == "pending":
-            await self.cog._cancel_fight(self.fight["message"].guild.id, "Duel invitation has expired.")
-            try:
-                await self.fight["message"].edit(view=None)
-            except:
-                pass
+        battler = battle.get_battler(interaction.user)
+        if not battler:
+            await interaction.response.send_message("You are not part of this battle.", ephemeral=True)
+            return
 
-    async def _check_selection_timeout(self):
-        """Check for ball selection timeout"""
-        await asyncio.sleep(180)
-        if self.fight["status"] == "active" and (not self.fight["challenger_ball"] or not self.fight["opponent_ball"]):
-            await self.cog._cancel_fight(self.fight["message"].guild.id, "Ball selection time has expired.")
-            try:
-                embed = discord.Embed(
-                    title="Duel Cancelled",
-                    description="Ball selection time has expired.",
-                    color=discord.Colour.red()
-                )
-                await self.fight["message"].edit(embed=embed, view=None)
-            except:
-                pass
+        if battler.locked:
+            await interaction.response.send_message("Your selection is locked and cannot be updated.", ephemeral=True)
+            return
 
+        if ball.player.discord_id != interaction.user.id:
+            await interaction.response.send_message(
+                "You can only use your own balls in battle.", ephemeral=True
+            )
+            return
 
-class FightActionView(View):
-    def __init__(self, fight: dict, current_user_id: int, cog):
-        super().__init__(timeout=30)
-        self.fight = fight
-        self.current_user_id = current_user_id
-        self.cog = cog
+        if ball in battler.proposal:
+            await interaction.response.send_message(
+                "This ball is already in your roster.", ephemeral=True
+            )
+            return
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.current_user_id:
-            await interaction.response.send_message("It's not your turn, please wait for the opponent's action.", ephemeral=True)
-            return False
-        return True
+        if not battle.can_add_ball(battler):
+            await interaction.response.send_message(
+                f"Your roster already reached the maximum of {battle.MAX_BALLS} balls.", ephemeral=True
+            )
+            return
 
-    @discord.ui.button(label="Punch", emoji="👊", style=discord.ButtonStyle.primary)
-    async def punch(self, interaction: discord.Interaction, button: Button):
-        await self._handle_action(interaction, "Punch")
-
-    @discord.ui.button(label="Kick", emoji="🦵", style=discord.ButtonStyle.danger)
-    async def kick(self, interaction: discord.Interaction, button: Button):
-        await self._handle_action(interaction, "Kick")
-
-    @discord.ui.button(label="Defend", emoji="🛡️", style=discord.ButtonStyle.secondary)
-    async def defend(self, interaction: discord.Interaction, button: Button):
-        await self._handle_action(interaction, "Defend")
-
-    @discord.ui.button(label="Run", emoji="💨", style=discord.ButtonStyle.danger)
-    async def run(self, interaction: discord.Interaction, button: Button):
-        await self._handle_escape(interaction)
-
-    async def _handle_action(self, interaction: discord.Interaction, action: str):
-        await self.cog._handle_fight_action(interaction, action)
-        for item in self.children:
-            item.disabled = True
-        await interaction.message.edit(view=self)
-
-    async def _handle_escape(self, interaction: discord.Interaction):
-        fight = self.fight
-        fight["status"] = "finished"
-        runner = interaction.user
-        embed = discord.Embed(
-            title="Duel Ended!",
-            description=f"{runner.mention} chose to run, battle ended!",
-            color=discord.Colour.red()
+        battler.proposal.append(ball)
+        battler.proposal = battler.proposal[:battle.MAX_BALLS]
+        await interaction.response.send_message(
+            f"{ball.countryball.country} joined your roster.", ephemeral=True
         )
-        await fight["message"].edit(embed=embed, view=None)
-        if hasattr(self.cog, "fights") and fight.get("message") and fight.get("message").guild:
-            guild_id = fight["message"].guild.id
-            if guild_id in self.cog.fights:
-                del self.cog.fights[guild_id]
-        for item in self.children:
-            item.disabled = True
-        await interaction.message.edit(view=self)
+        await battle.update_message()
+
+    @app_commands.command()
+    async def all(self, interaction: discord.Interaction):
+        """
+        Add every ball you own, up to the configured limit.
+        """
+        if not interaction.guild_id:
+            await interaction.response.send_message("You can only battle inside a server.", ephemeral=True)
+            return
+
+        battle = self.get_battle(interaction)
+        if not battle:
+            await interaction.response.send_message("There is no ongoing battle right now.", ephemeral=True)
+            return
+
+        battler = battle.get_battler(interaction.user)
+        if not battler:
+            await interaction.response.send_message("You are not part of this battle.", ephemeral=True)
+            return
+
+        if battler.locked:
+            await interaction.response.send_message("Your selection is locked and cannot be updated.", ephemeral=True)
+            return
+
+        player = await Player.get(discord_id=interaction.user.id)
+        all_balls = await BallInstance.filter(player=player)
+
+        if not all_balls:
+            await interaction.response.send_message("You do not own any usable balls.", ephemeral=True)
+            return
+
+        available_balls = [ball for ball in all_balls if ball not in battler.proposal]
+
+        remaining_slots = battle.MAX_BALLS - len(battler.proposal)
+        if remaining_slots <= 0:
+            await interaction.response.send_message(
+                f"Your roster already reached the maximum of {battle.MAX_BALLS} balls.", ephemeral=True
+            )
+            return
+
+        balls_to_add = available_balls[:remaining_slots]
+        battler.proposal.extend(balls_to_add)
+        battler.proposal = battler.proposal[:battle.MAX_BALLS]
+
+        if not balls_to_add:
+            await interaction.response.send_message("Every ball you own is already in your roster.", ephemeral=True)
+            return
+
+        display_balls = balls_to_add[:10]
+        more_balls = len(balls_to_add) - len(display_balls)
+        display_message = "\n".join(f"{ball.countryball.country}" for ball in display_balls)
+        if more_balls > 0:
+            display_message += f"\n...and {more_balls} more."
+
+        await interaction.response.send_message(
+            f"The following balls were added:\n{display_message}", ephemeral=True
+        )
+        await battle.update_message()
 
 
 class CountryballsSource(menus.ListPageSource):
@@ -741,7 +725,7 @@ class CountryballsSource(menus.ListPageSource):
 
     async def format_page(self, menu: "CountryballsSelector", balls: List[BallInstance]):
         menu.set_options(balls)
-        return True  # signal to edit the page
+        return True
 
 
 class CountryballsSelector(Pages):
@@ -791,7 +775,7 @@ class CountryballsSelector(Pages):
             self.balls_selected.add(ball_instance)
         await interaction.response.defer()
 
-    @discord.ui.button(label="Select Page", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Select page", style=discord.ButtonStyle.secondary)
     async def select_all_button(
         self, interaction: discord.Interaction["BallsDexBot"], button: Button
     ):
@@ -804,8 +788,8 @@ class CountryballsSelector(Pages):
                 self.balls_selected.add(ball_instance)
         await interaction.followup.send(
             (
-                f"Selected all {settings.plural_collectible_name} on this page.\n"
-                "Note: Change page to see the updated status."
+                f"All {settings.plural_collectible_name} on this page were selected.\n"
+                "Switch pages to refresh the highlights."
             ),
             ephemeral=True,
         )
@@ -817,35 +801,35 @@ class CountryballsSelector(Pages):
         await interaction.response.defer(thinking=True, ephemeral=True)
         battle = self.cog.get_battle(interaction)
         if not battle:
-            await interaction.followup.send("There is no ongoing battle.", ephemeral=True)
+            await interaction.followup.send("There is no ongoing battle right now.", ephemeral=True)
             return
 
         battler = battle.get_battler(interaction.user)
         if not battler:
-            await interaction.followup.send("You are not a participant in this battle.", ephemeral=True)
+            await interaction.followup.send("You are not part of this battle.", ephemeral=True)
             return
         
         if battler.locked:
-            await interaction.followup.send("You have already locked your selection, cannot add more balls.", ephemeral=True)
+            await interaction.followup.send("Your selection is locked and cannot be updated.", ephemeral=True)
             return
 
         if any(ball in battler.proposal for ball in self.balls_selected):
             await interaction.followup.send(
-                f"Some selected balls are already in your lineup, {settings.plural_collectible_name} selected.",
+                f"Some of these {settings.plural_collectible_name} are already in your roster.",
                 ephemeral=True,
             )
             return
         
         if len(battler.proposal) + len(self.balls_selected) > battle.MAX_BALLS:
             await interaction.followup.send(
-                f"You can only select up to {battle.MAX_BALLS} balls.",
+                f"You can only bring {battle.MAX_BALLS} balls.",
                 ephemeral=True
             )
             return
 
         if len(self.balls_selected) == 0:
             await interaction.followup.send(
-                f"No {settings.plural_collectible_name} selected to add to your lineup.",
+                f"You have not selected any {settings.plural_collectible_name} yet.",
                 ephemeral=True,
             )
             return
@@ -859,21 +843,21 @@ class CountryballsSelector(Pages):
             else f"{settings.plural_collectible_name}"
         )
         await interaction.followup.send(
-            f"Added {len(self.balls_selected)} {grammar} to your battle lineup.", ephemeral=True
+            f"{len(self.balls_selected)} {grammar} added to your roster.", ephemeral=True
         )
         await battle.update_message()
         self.balls_selected.clear()
         self.stop()
 
-    @discord.ui.button(label="Clear", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="Clear selection", style=discord.ButtonStyle.danger)
     async def clear_button(self, interaction: discord.Interaction["BallsDexBot"], button: Button):
         await interaction.response.defer(thinking=True, ephemeral=True)
         self.balls_selected.clear()
         await interaction.followup.send(
-            f"Cleared all currently selected {settings.plural_collectible_name}."
-            f"This does not affect {settings.plural_collectible_name} already added to the battle.\n"
-            f"In some cases, balls on this page may still appear selected, but this is visual only - "
-            "change page to see correct status.",
+            f"Cleared the currently highlighted {settings.plural_collectible_name}."
+            f" This does not remove anything already added to your roster.\n"
+            f"Some options might still appear selected until you switch pages, "
+            "which will refresh their state.",
             ephemeral=True,
         )
 
