@@ -96,13 +96,13 @@ TIMEZONE_SETTING = timezone(timedelta(hours=8)) # Timezone configuration - chang
                 )
                 return
             
-            total_spins = random.randint(4, 7)
+            total_spins = random.randint(3, 5)
             
             reel_sequence = []
             for _ in range(total_spins - 1):
                 reel_sequence.append(random.choice(candidate_balls))
             
-            if total_spins >= 6 and visual_target.rarity > 20:
+            if total_spins >= 4 and visual_target.rarity > 20:
                 high_tier = [b for b in candidate_balls if b.rarity <= 20]
                 if high_tier:
                     reel_sequence[total_spins - 2] = random.choice(high_tier)
@@ -121,7 +121,7 @@ TIMEZONE_SETTING = timezone(timedelta(hours=8)) # Timezone configuration - chang
                 prev_ball = reel_sequence[step-1] if step > 0 else random.choice(candidate_balls)
                 next_ball = reel_sequence[step+1] if step < total_spins - 1 else random.choice(candidate_balls)
                 
-                sleep_time = 0.6 + (step * 0.2)
+                sleep_time = 1.0 + (step * 0.2)
                 
                 color = discord.Color.gold()
                 if step == total_spins - 2 and current_ball.rarity <= 20:
