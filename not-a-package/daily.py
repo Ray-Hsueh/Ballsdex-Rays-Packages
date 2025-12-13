@@ -83,7 +83,11 @@ TIMEZONE_SETTING = timezone(timedelta(hours=8)) # Timezone configuration - chang
         player, _ = await Player.get_or_create(discord_id=user_id)
             
         try:
-            candidate_balls = await Ball.filter(enabled=True).all()
+            spawn_view = await BallSpawnView.get_random(self.bot)
+            visual_target = spawn_view.model
+            special = spawn_view.get_random_special()
+            
+            candidate_balls = list(filter(lambda m: m.enabled, balls.values()))
             
             if not candidate_balls:
                 await interaction.followup.send(
@@ -92,12 +96,6 @@ TIMEZONE_SETTING = timezone(timedelta(hours=8)) # Timezone configuration - chang
                 )
                 return
             
-            weights = [float(b.rarity) for b in candidate_balls]
-            visual_target = random.choices(candidate_balls, weights=weights, k=1)[0]
-
-            spawn_view = await BallSpawnView.get_random(self.bot)
-            special = spawn_view.get_random_special()
-
             total_spins = random.randint(4, 7)
             
             reel_sequence = []
