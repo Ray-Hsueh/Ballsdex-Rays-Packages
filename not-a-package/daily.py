@@ -5,6 +5,7 @@
 import json
 import os
 import random
+import asyncio
 import traceback
 from datetime import datetime, timedelta, timezone
 from ballsdex.packages.countryballs.countryball import BallSpawnView
@@ -82,13 +83,70 @@ TIMEZONE_SETTING = timezone(timedelta(hours=8)) # Timezone configuration - chang
         player, _ = await Player.get_or_create(discord_id=user_id)
             
         try:
-            spawn_view = await BallSpawnView.get_random(self.bot)
-            ball = spawn_view.model
+            candidate_balls = await Ball.filter(enabled=True).all()
+            
+            if not candidate_balls:
+                await interaction.followup.send(
+                    "No balls are currently available!",
+                    ephemeral=True
+                )
+                return
+            
+            weights = [float(b.rarity) for b in candidate_balls]
+            visual_target = random.choices(candidate_balls, weights=weights, k=1)[0]
 
+            spawn_view = await BallSpawnView.get_random(self.bot)
             special = spawn_view.get_random_special()
+
+            total_spins = random.randint(4, 7)
+            
+            reel_sequence = []
+            for _ in range(total_spins - 1):
+                reel_sequence.append(random.choice(candidate_balls))
+            
+            if total_spins >= 6 and visual_target.rarity > 10:
+                high_tier = [b for b in candidate_balls if b.rarity <= 10]
+                if high_tier:
+                    reel_sequence[total_spins - 2] = random.choice(high_tier)
+            
+            reel_sequence.append(visual_target)
+            
+            initial_embed = discord.Embed(
+                title="🎰 Daily Check-in Drawing...",
+                description="Drawing your daily reward...",
+                color=discord.Color.gold()
+            )
+            message = await interaction.followup.send(embed=initial_embed)
+            
+            for step in range(total_spins):
+                current_ball = reel_sequence[step]
+                prev_ball = reel_sequence[step-1] if step > 0 else random.choice(candidate_balls)
+                next_ball = reel_sequence[step+1] if step < total_spins - 1 else random.choice(candidate_balls)
+                
+                sleep_time = 0.6 + (step * 0.2)
+                
+                color = discord.Color.gold()
+                if step == total_spins - 2 and current_ball.rarity <= 10:
+                    color = discord.Color.red()
+                
+                prev_emoji = self.bot.get_emoji(prev_ball.emoji_id) or prev_ball.country
+                current_emoji = self.bot.get_emoji(current_ball.emoji_id) or current_ball.country
+                next_emoji = self.bot.get_emoji(next_ball.emoji_id) or next_ball.country
+                
+                embed = discord.Embed(
+                    title="🎰 Daily Check-in Drawing...",
+                    description=f"⬇️\n"
+                                f"{prev_emoji} {prev_ball.country}\n"
+                                f"👉 **{current_emoji} {current_ball.country}** 👈\n"
+                                f"{next_emoji} {next_ball.country}\n"
+                                f"⬆️",
+                    color=color
+                )
+                await message.edit(embed=embed)
+                await asyncio.sleep(sleep_time)
             
             instance = await BallInstance.create(
-                ball=ball,
+                ball=visual_target,
                 player=player,
                 special=special,
                 attack_bonus=random.randint(-settings.max_attack_bonus, +settings.max_attack_bonus),
@@ -101,14 +159,19 @@ TIMEZONE_SETTING = timezone(timedelta(hours=8)) # Timezone configuration - chang
             content, file, view = await instance.prepare_for_message(interaction)
             file.filename = "daily_card.png"
             
-            embed = discord.Embed(
+            ball_info = f"{visual_target.country} (ATK:{instance.attack} HP:{instance.health})"
+            if special:
+                special_emoji = getattr(special, "emoji", "")
+                ball_info = f"{special_emoji} {ball_info}"
+            
+            final_embed = discord.Embed(
                 title="🎁 Daily Check-in Reward",
-                description=f"Congratulations on claiming your daily reward!\nYou received: {ball.country} (ATK:{instance.attack} HP:{instance.health})",
+                description=f"Congratulations on claiming your daily reward!\n\nYou received: \n{ball_info}",
                 color=discord.Color.green()
             )
-            embed.set_image(url="attachment://daily_card.png")
+            final_embed.set_image(url="attachment://daily_card.png")
             
-            await interaction.followup.send(embed=embed, file=file)
+            await message.edit(embed=final_embed, attachments=[file])
             
         except Exception as e:
             print(f"Error occurred while distributing daily reward: {str(e)}")
