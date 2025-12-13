@@ -102,8 +102,8 @@ TIMEZONE_SETTING = timezone(timedelta(hours=8)) # Timezone configuration - chang
             for _ in range(total_spins - 1):
                 reel_sequence.append(random.choice(candidate_balls))
             
-            if total_spins >= 6 and visual_target.rarity > 10:
-                high_tier = [b for b in candidate_balls if b.rarity <= 10]
+            if total_spins >= 6 and visual_target.rarity > 20:
+                high_tier = [b for b in candidate_balls if b.rarity <= 20]
                 if high_tier:
                     reel_sequence[total_spins - 2] = random.choice(high_tier)
             
@@ -124,7 +124,7 @@ TIMEZONE_SETTING = timezone(timedelta(hours=8)) # Timezone configuration - chang
                 sleep_time = 0.6 + (step * 0.2)
                 
                 color = discord.Color.gold()
-                if step == total_spins - 2 and current_ball.rarity <= 10:
+                if step == total_spins - 2 and current_ball.rarity <= 20:
                     color = discord.Color.red()
                 
                 prev_emoji = self.bot.get_emoji(prev_ball.emoji_id) or prev_ball.country
