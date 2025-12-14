@@ -96,13 +96,13 @@ TIMEZONE_SETTING = timezone(timedelta(hours=8)) # Timezone configuration - chang
                 )
                 return
             
-            total_spins = random.randint(3, 5)
+            total_spins = random.randint(4, 7)
             
             reel_sequence = []
             for _ in range(total_spins - 1):
                 reel_sequence.append(random.choice(candidate_balls))
             
-            if total_spins >= 4 and visual_target.rarity > 20:
+            if total_spins >= 6 and visual_target.rarity > 20:
                 high_tier = [b for b in candidate_balls if b.rarity <= 20]
                 if high_tier:
                     reel_sequence[total_spins - 2] = random.choice(high_tier)
@@ -114,14 +114,14 @@ TIMEZONE_SETTING = timezone(timedelta(hours=8)) # Timezone configuration - chang
                 description="Drawing your daily reward...",
                 color=discord.Color.gold()
             )
-            message = await interaction.followup.send(embed=initial_embed)
+            await interaction.edit_original_response(embed=initial_embed)
             
             for step in range(total_spins):
                 current_ball = reel_sequence[step]
                 prev_ball = reel_sequence[step-1] if step > 0 else random.choice(candidate_balls)
                 next_ball = reel_sequence[step+1] if step < total_spins - 1 else random.choice(candidate_balls)
                 
-                sleep_time = 1.0 + (step * 0.2)
+                sleep_time = 0.6 + (step * 0.2)
                 
                 color = discord.Color.gold()
                 if step == total_spins - 2 and current_ball.rarity <= 20:
@@ -140,7 +140,7 @@ TIMEZONE_SETTING = timezone(timedelta(hours=8)) # Timezone configuration - chang
                                 f"⬆️",
                     color=color
                 )
-                await message.edit(embed=embed)
+                await interaction.edit_original_response(embed=embed)
                 await asyncio.sleep(sleep_time)
             
             instance = await BallInstance.create(
@@ -169,7 +169,7 @@ TIMEZONE_SETTING = timezone(timedelta(hours=8)) # Timezone configuration - chang
             )
             final_embed.set_image(url="attachment://daily_card.png")
             
-            await message.edit(embed=final_embed, attachments=[file])
+            await interaction.edit_original_response(embed=final_embed, attachments=[file])
             
         except Exception as e:
             print(f"Error occurred while distributing daily reward: {str(e)}")
