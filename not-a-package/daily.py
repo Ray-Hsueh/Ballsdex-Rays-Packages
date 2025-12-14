@@ -102,11 +102,22 @@ TIMEZONE_SETTING = timezone(timedelta(hours=8)) # Timezone configuration - chang
             for _ in range(total_spins - 1):
                 reel_sequence.append(random.choice(candidate_balls))
             
-            if total_spins >= 6 and visual_target.rarity > 20:
-                high_tier = [b for b in candidate_balls if b.rarity <= 20]
-                if high_tier:
-                    reel_sequence[total_spins - 2] = random.choice(high_tier)
+            high_tier_balls = [b for b in candidate_balls if b.rarity <= 35]
+            is_target_common = visual_target.rarity > 35
             
+            if is_target_common and high_tier_balls and total_spins >= 4:
+                
+                drama_roll = random.random()
+                
+                if drama_roll < 0.4:  
+                    reel_sequence[total_spins - 2] = random.choice(high_tier_balls)
+                    
+                elif drama_roll < 0.7:
+                    pass 
+                    
+                else:
+                    pass
+
             reel_sequence.append(visual_target)
             
             initial_embed = discord.Embed(
@@ -118,13 +129,24 @@ TIMEZONE_SETTING = timezone(timedelta(hours=8)) # Timezone configuration - chang
             
             for step in range(total_spins):
                 current_ball = reel_sequence[step]
-                prev_ball = reel_sequence[step-1] if step > 0 else random.choice(candidate_balls)
-                next_ball = reel_sequence[step+1] if step < total_spins - 1 else random.choice(candidate_balls)
+                
+                if step > 0:
+                    prev_ball = reel_sequence[step-1]
+                else:
+                    prev_ball = random.choice(candidate_balls)
+                
+                if step < total_spins - 1:
+                    next_ball = reel_sequence[step+1]
+                else:
+                    if is_target_common and high_tier_balls and random.random() < 0.3:
+                         next_ball = random.choice(high_tier_balls)
+                    else:
+                         next_ball = random.choice(candidate_balls)
                 
                 sleep_time = 0.6 + (step * 0.2)
                 
                 color = discord.Color.gold()
-                if step == total_spins - 2 and current_ball.rarity <= 20:
+                if current_ball.rarity <= 35:
                     color = discord.Color.red()
                 
                 prev_emoji = self.bot.get_emoji(prev_ball.emoji_id) or prev_ball.country
