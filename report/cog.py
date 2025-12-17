@@ -35,9 +35,10 @@ def save_reports(data):
 
 def generate_report_id(existing_ids):
     while True:
-        rid = str(random.randint(100000, 999999))
+        rid = str(int(time.time() * 1000))
         if rid not in existing_ids:
             return rid
+        time.sleep(0.001)
 
 class ReportCog(commands.Cog, name="Report"):
     def __init__(self, bot: commands.Bot):
