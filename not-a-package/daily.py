@@ -82,6 +82,9 @@ TIMEZONE_SETTING = timezone(timedelta(hours=8)) # Timezone configuration - chang
                 
         player, _ = await Player.get_or_create(discord_id=user_id)
             
+        self.daily_claims[user_id] = now
+        self.save_daily_claims()
+        
         try:
             spawn_view = await BallSpawnView.get_random(self.bot)
             visual_target = spawn_view.model
@@ -173,9 +176,6 @@ TIMEZONE_SETTING = timezone(timedelta(hours=8)) # Timezone configuration - chang
                 health_bonus=random.randint(-settings.max_health_bonus, +settings.max_health_bonus),
             )
             
-            self.daily_claims[user_id] = now
-            self.save_daily_claims()
-            
             content, file, view = await instance.prepare_for_message(interaction)
             file.filename = "daily_card.png"
             
@@ -194,6 +194,10 @@ TIMEZONE_SETTING = timezone(timedelta(hours=8)) # Timezone configuration - chang
             await interaction.edit_original_response(embed=final_embed, attachments=[file])
             
         except Exception as e:
+            if user_id in self.daily_claims:
+                del self.daily_claims[user_id]
+                self.save_daily_claims()
+                
             print(f"Error occurred while distributing daily reward: {str(e)}")
             traceback.print_exc()
             await interaction.followup.send(
