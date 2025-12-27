@@ -1,4 +1,5 @@
 # Adding Custom Package to BallsDex
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-F16061?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/rayhsueh)
 
 > [!TIP]
 > In most cases, each folder represents a custom package.
