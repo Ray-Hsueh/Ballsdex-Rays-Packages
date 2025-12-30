@@ -143,17 +143,18 @@ class Broadcast(commands.Cog):
     @app_commands.command(name="list_broadcast_channels", description="List all ball spawn channels")
     @app_commands.checks.has_any_role(*settings.root_role_ids)
     async def list_broadcast_channels(self, interaction: discord.Interaction):
+        await interaction.response.defer(thinking=True)
         if not is_staff(interaction):
-            await interaction.response.send_message("You need bot admin permissions to use this command.")
+            await interaction.followup.send("You need bot admin permissions to use this command.")
             return
 
         try:
             channels = await self.get_broadcast_channels()
             if not channels:
-                await interaction.response.send_message("No ball spawn channels are currently configured.")
+                await interaction.followup.send("No ball spawn channels are currently configured.")
                 return
 
-            await interaction.response.send_message("Collecting server information, please wait...")
+            await interaction.followup.send("Collecting server information, please wait...")
             
             channel_list = []
             total_stats = {
@@ -234,7 +235,7 @@ class Broadcast(commands.Cog):
         except Exception as e:
             logger.error(f"Error in list_broadcast_channels: {str(e)}")
             logger.error(traceback.format_exc())
-            await interaction.response.send_message("An error occurred while executing the command. Please try again later.")
+            await interaction.followup.send("An error occurred while executing the command. Please try again later.")
 
     @app_commands.command(name="broadcast", description="Send a broadcast message to all ball spawn channels")
     @app_commands.checks.has_any_role(*settings.root_role_ids)
@@ -252,23 +253,24 @@ class Broadcast(commands.Cog):
         anonymous: bool = False
     ):
         """Send broadcast messages to all ball spawn channels"""
+        await interaction.response.defer(thinking=True)
         if broadcast_type == "text" and not message:
-            await interaction.response.send_message("You must provide a message when selecting 'Text Only' mode.")
+            await interaction.followup.send("You must provide a message when selecting 'Text Only' mode.")
             return
         if broadcast_type == "image" and not attachment:
-            await interaction.response.send_message("You must provide an image when selecting 'Image Only' mode.")
+            await interaction.followup.send("You must provide an image when selecting 'Image Only' mode.")
             return
         if broadcast_type == "both" and not message and not attachment:
-            await interaction.response.send_message("You must provide a message or image when selecting 'Text and Image' mode.")
+            await interaction.followup.send("You must provide a message or image when selecting 'Text and Image' mode.")
             return
 
         try:
             channels = await self.get_broadcast_channels()
             if not channels:
-                await interaction.response.send_message("No ball spawn channels are currently configured.")
+                await interaction.followup.send("No ball spawn channels are currently configured.")
                 return
 
-            await interaction.response.send_message("Broadcasting message...")
+            await interaction.followup.send("Broadcasting message...")
             
             success_count = 0
             fail_count = 0
@@ -348,7 +350,7 @@ class Broadcast(commands.Cog):
         except Exception as e:
             logger.error(f"Error in broadcast: {str(e)}")
             logger.error(traceback.format_exc())
-            await interaction.response.send_message("An error occurred while executing the command. Please try again later.")
+            await interaction.followup.send("An error occurred while executing the command. Please try again later.")
 
     @app_commands.command(name="broadcast_dm", description="Send a DM broadcast to specific users")
     @app_commands.checks.has_any_role(*settings.root_role_ids)
@@ -366,13 +368,14 @@ class Broadcast(commands.Cog):
             user_ids: a comma-separated list of user IDs to send the message to
             anonymous: gives an option to send the message anonymously
         """
+        await interaction.response.defer(thinking=True)
         try:
             user_id_list = [uid.strip() for uid in user_ids.split(",")]
             if not user_id_list:
-                await interaction.response.send_message("Please provide at least one user ID.")
+                await interaction.followup.send("Please provide at least one user ID.")
                 return
 
-            await interaction.response.send_message("Starting DM broadcast...")
+            await interaction.followup.send("Starting DM broadcast...")
             
             success_count = 0
             fail_count = 0
@@ -396,6 +399,9 @@ class Broadcast(commands.Cog):
                     else:
                         fail_count += 1
                         failed_users.append(f"Unknown User (ID: {user_id})")
+                except discord.Forbidden:
+                    fail_count += 1
+                    failed_users.append(f"User ID: {user_id} (DMs Closed)")
                 except Exception as e:
                     logger.error(f"Error sending DM to user {user_id}: {str(e)}")
                     logger.error(traceback.format_exc())
