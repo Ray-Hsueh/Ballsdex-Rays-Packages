@@ -7,7 +7,7 @@ from ballsdex.core.models import GuildConfig, BallInstance
 from ballsdex.settings import settings
 from ballsdex.core.utils.utils import is_staff
 from datetime import datetime, timedelta, timezone
-import traceback
+
 import math
 import logging
 import io
@@ -27,24 +27,19 @@ class Broadcast(commands.Cog):
         pass
 
     async def get_broadcast_channels(self):
-        try:
-            channels = set()
-            async for config in GuildConfig.filter(enabled=True, spawn_channel__isnull=False):
-                channel = self.bot.get_channel(config.spawn_channel)
-                if channel:
-                    channels.add(config.spawn_channel)
-                else:
-                    try:
-                        config.enabled = False
-                        await config.save()
-                        logger.debug(f"Disabled guild {config.guild_id} due to missing channel {config.spawn_channel}")
-                    except Exception as e:
-                        logger.error(f"Error disabling guild {config.guild_id}: {str(e)}")
-            return channels
-        except Exception as e:
-            logger.error(f"Error getting broadcast channels: {str(e)}")
-            logger.error(traceback.format_exc())
-            return set()
+        channels = set()
+        async for config in GuildConfig.filter(enabled=True, spawn_channel__isnull=False):
+            channel = self.bot.get_channel(config.spawn_channel)
+            if channel:
+                channels.add(config.spawn_channel)
+            else:
+                try:
+                    config.enabled = False
+                    await config.save()
+                    logger.debug(f"Disabled guild {config.guild_id} due to missing channel {config.spawn_channel}")
+                except Exception:
+                    logger.exception(f"Error disabling guild {config.guild_id}")
+        return channels
 
     async def get_member_count(self, guild):
         """to get the number of server members"""
@@ -55,44 +50,38 @@ class Broadcast(commands.Cog):
                 
             return guild.member_count
                 
-        except Exception as e:
-            logger.error(f"Error in get_member_count: {str(e)}")
-            logger.error(traceback.format_exc())
+        except Exception:
+            logger.exception("Error in get_member_count")
             return 0
 
     def create_embed(self, channel_list, total_stats, page, total_pages):
         """create embed message"""
-        try:
-            embed = discord.Embed(
-                title="Ball Generation Channel List",
-                color=discord.Color.blue(),
-                timestamp=datetime.now(timezone.utc)
-            )
-            
+        embed = discord.Embed(
+            title="Ball Generation Channel List",
+            color=discord.Color.blue(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        
+        embed.add_field(
+            name="Statistics",
+            value=(
+                f"Total Channels: {total_stats['total_channels']}\n"
+                f"Total Members: {total_stats['total_members']:,}\n"
+                f"Unknown Channels: {total_stats['unknown_channels']}\n"
+                f"Unknown Guilds: {total_stats['unknown_guilds']}"
+            ),
+            inline=False
+        )
+        
+        for channel_info in channel_list:
             embed.add_field(
-                name="Statistics",
-                value=(
-                    f"Total Channels: {total_stats['total_channels']}\n"
-                    f"Total Members: {total_stats['total_members']:,}\n"
-                    f"Unknown Channels: {total_stats['unknown_channels']}\n"
-                    f"Unknown Guilds: {total_stats['unknown_guilds']}"
-                ),
+                name=channel_info['name'],
+                value=channel_info['value'],
                 inline=False
             )
-            
-            for channel_info in channel_list:
-                embed.add_field(
-                    name=channel_info['name'],
-                    value=channel_info['value'],
-                    inline=False
-                )
-            
-            embed.set_footer(text=f"Page {page}/{total_pages}")
-            return embed
-        except Exception as e:
-            logger.error(f"Error creating embed: {str(e)}")
-            logger.error(traceback.format_exc())
-            raise
+        
+        embed.set_footer(text=f"Page {page}/{total_pages}")
+        return embed
 
     class PaginationView(discord.ui.View):
         def __init__(self, cog, channel_list, total_stats, timeout=180):
@@ -148,94 +137,81 @@ class Broadcast(commands.Cog):
             await interaction.followup.send("You need bot admin permissions to use this command.")
             return
 
-        try:
-            channels = await self.get_broadcast_channels()
-            if not channels:
-                await interaction.followup.send("No ball spawn channels are currently configured.")
-                return
+        channels = await self.get_broadcast_channels()
+        if not channels:
+            await interaction.followup.send("No ball spawn channels are currently configured.")
+            return
 
-            await interaction.followup.send("Collecting server information, please wait...")
-            
-            channel_list = []
-            total_stats = {
-                'total_channels': len(channels),
-                'total_members': 0,
-                'unknown_channels': 0,
-                'unknown_guilds': 0
-            }
-            
-            for channel_id in channels:
-                try:
-                    channel = self.bot.get_channel(channel_id)
-                    if not channel:
-                        total_stats['unknown_channels'] += 1
-                        continue
-                        
-                    guild = channel.guild
-                    if not guild:
-                        total_stats['unknown_guilds'] += 1
-                        continue
-                        
-                    member_count = await self.get_member_count(guild)
-                    total_stats['total_members'] += member_count
-                    
-                    channel_list.append({
-                        'name': f"**{guild.name}**",
-                        'value': (
-                            f"└ Channel: #{channel.name} (`{channel.id}`)\n"
-                            f"└ Guild ID: `{guild.id}`\n"
-                            f"└ Members: {member_count:,}"
-                        )
-                    })
-
-                    total_catches = await BallInstance.filter(server_id=guild.id).count()
-                    if total_catches >= 20: 
-                        recent_catches = await BallInstance.filter(
-                            server_id=guild.id
-                        ).order_by("-catch_date").limit(10).prefetch_related("player")
-
-                        if recent_catches:
-                            unique_catchers = len(set(ball.player.discord_id for ball in recent_catches))
-                            if unique_catchers == 1:
-                                player = recent_catches[0].player
-                                channel_list[-1]['value'] += f"\n└ ⚠️ **The last 10 balls were all caught by {player}**"
-
-                except Exception as e:
-                    logger.error(f"Error processing channel {channel_id}: {str(e)}")
-                    logger.error(traceback.format_exc())
-                    channel_list.append({
-                        'name': "Error Channel",
-                        'value': f"ID: {channel_id}"
-                    })
-
-            if not channel_list:
-                await interaction.followup.send("Could not retrieve any channel information.")
-                return
-
+        await interaction.followup.send("Collecting server information, please wait...")
+        
+        channel_list = []
+        total_stats = {
+            'total_channels': len(channels),
+            'total_members': 0,
+            'unknown_channels': 0,
+            'unknown_guilds': 0
+        }
+        
+        for channel_id in channels:
             try:
-                CHANNELS_PER_PAGE = 5
-                total_pages = math.ceil(len(channel_list) / CHANNELS_PER_PAGE)
-                
-                current_page = 1
-                start_idx = (current_page - 1) * CHANNELS_PER_PAGE
-                end_idx = start_idx + CHANNELS_PER_PAGE
-                current_channels = channel_list[start_idx:end_idx]
-                
-                embed = self.create_embed(current_channels, total_stats, current_page, total_pages)
-                
-                view = self.PaginationView(self, channel_list, total_stats)
-                
-                await interaction.followup.send(embed=embed, view=view)
+                channel = self.bot.get_channel(channel_id)
+                if not channel:
+                    total_stats['unknown_channels'] += 1
+                    continue
                     
-            except Exception as e:
-                logger.error(f"Error sending channel list: {str(e)}")
-                logger.error(traceback.format_exc())
-                await interaction.followup.send("An error occurred while processing the channel list. Please try again later.")
+                guild = channel.guild
+                if not guild:
+                    total_stats['unknown_guilds'] += 1
+                    continue
+                    
+                member_count = await self.get_member_count(guild)
+                total_stats['total_members'] += member_count
                 
-        except Exception as e:
-            logger.error(f"Error in list_broadcast_channels: {str(e)}")
-            logger.error(traceback.format_exc())
-            await interaction.followup.send("An error occurred while executing the command. Please try again later.")
+                channel_list.append({
+                    'name': f"**{guild.name}**",
+                    'value': (
+                        f"└ Channel: #{channel.name} (`{channel.id}`)\n"
+                        f"└ Guild ID: `{guild.id}`\n"
+                        f"└ Members: {member_count:,}"
+                    )
+                })
+
+                total_catches = await BallInstance.filter(server_id=guild.id).count()
+                if total_catches >= 20: 
+                    recent_catches = await BallInstance.filter(
+                        server_id=guild.id
+                    ).order_by("-catch_date").limit(10).prefetch_related("player")
+
+                    if recent_catches:
+                        unique_catchers = len(set(ball.player.discord_id for ball in recent_catches))
+                        if unique_catchers == 1:
+                            player = recent_catches[0].player
+                            channel_list[-1]['value'] += f"\n└ ⚠️ **The last 10 balls were all caught by {player}**"
+
+            except Exception:
+                logger.exception(f"Error processing channel {channel_id}")
+                channel_list.append({
+                    'name': "Error Channel",
+                    'value': f"ID: {channel_id}"
+                })
+
+        if not channel_list:
+            await interaction.followup.send("Could not retrieve any channel information.")
+            return
+
+        CHANNELS_PER_PAGE = 5
+        total_pages = math.ceil(len(channel_list) / CHANNELS_PER_PAGE)
+        
+        current_page = 1
+        start_idx = (current_page - 1) * CHANNELS_PER_PAGE
+        end_idx = start_idx + CHANNELS_PER_PAGE
+        current_channels = channel_list[start_idx:end_idx]
+        
+        embed = self.create_embed(current_channels, total_stats, current_page, total_pages)
+        
+        view = self.PaginationView(self, channel_list, total_stats)
+        
+        await interaction.followup.send(embed=embed, view=view)
 
     @app_commands.command(name="broadcast", description="Send a broadcast message to all ball spawn channels")
     @app_commands.checks.has_any_role(*settings.root_role_ids)
@@ -264,93 +240,85 @@ class Broadcast(commands.Cog):
             await interaction.followup.send("You must provide a message or image when selecting 'Text and Image' mode.")
             return
 
-        try:
-            channels = await self.get_broadcast_channels()
-            if not channels:
-                await interaction.followup.send("No ball spawn channels are currently configured.")
-                return
+        channels = await self.get_broadcast_channels()
+        if not channels:
+            await interaction.followup.send("No ball spawn channels are currently configured.")
+            return
 
-            await interaction.followup.send("Broadcasting message...")
-            
-            success_count = 0
-            fail_count = 0
-            failed_channels = []
-            
-            broadcast_message = None
-            if message:
-                broadcast_message = (
-                    "🔔 **System Announcement** 🔔\n"
-                    "------------------------\n"
-                    f"{message}\n"
-                    "------------------------\n"
-                )
-                if not anonymous:
-                    broadcast_message += f"*Sent by {interaction.user.name}*"
-            
-            file = None
-            file_data = None
-            if attachment and broadcast_type in ["both", "image"]:
-                try:
-                    file_data = await attachment.read()
-                    file = await attachment.to_file()
-                except Exception as e:
-                    logger.error(f"Error downloading attachment: {str(e)}")
-                    logger.error(traceback.format_exc())
-                    await interaction.followup.send("An error occurred while downloading the attachment. Only the text message will be sent.")
-            
-            for channel_id in channels:
-                try:
-                    channel = self.bot.get_channel(channel_id)
-                    if channel:
-                        if broadcast_type == "text":
-                            await channel.send(broadcast_message)
-                        elif broadcast_type == "image" and file_data:
+        await interaction.followup.send("Broadcasting message...")
+        
+        success_count = 0
+        fail_count = 0
+        failed_channels = []
+        
+        broadcast_message = None
+        if message:
+            broadcast_message = (
+                "🔔 **System Announcement** 🔔\n"
+                "------------------------\n"
+                f"{message}\n"
+                "------------------------\n"
+            )
+            if not anonymous:
+                broadcast_message += f"*Sent by {interaction.user.name}*"
+        
+        file = None
+        file_data = None
+        if attachment and broadcast_type in ["both", "image"]:
+            try:
+                file_data = await attachment.read()
+                file = await attachment.to_file()
+            except Exception:
+                logger.exception("Error downloading attachment")
+                await interaction.followup.send("An error occurred while downloading the attachment. Only the text message will be sent.")
+        
+        for channel_id in channels:
+            try:
+                channel = self.bot.get_channel(channel_id)
+                if channel:
+                    if broadcast_type == "text":
+                        await channel.send(broadcast_message)
+                    elif broadcast_type == "image" and file_data:
+                        new_file = discord.File(
+                            io.BytesIO(file_data),
+                            filename=attachment.filename,
+                            spoiler=attachment.is_spoiler()
+                        )
+                        await channel.send(file=new_file)
+                    else:  # both
+                        if file_data and broadcast_message:
+                            new_file = discord.File(
+                                io.BytesIO(file_data),
+                                filename=attachment.filename,
+                                spoiler=attachment.is_spoiler()
+                            )
+                            await channel.send(broadcast_message, file=new_file)
+                        elif file_data:
                             new_file = discord.File(
                                 io.BytesIO(file_data),
                                 filename=attachment.filename,
                                 spoiler=attachment.is_spoiler()
                             )
                             await channel.send(file=new_file)
-                        else:  # both
-                            if file_data and broadcast_message:
-                                new_file = discord.File(
-                                    io.BytesIO(file_data),
-                                    filename=attachment.filename,
-                                    spoiler=attachment.is_spoiler()
-                                )
-                                await channel.send(broadcast_message, file=new_file)
-                            elif file_data:
-                                new_file = discord.File(
-                                    io.BytesIO(file_data),
-                                    filename=attachment.filename,
-                                    spoiler=attachment.is_spoiler()
-                                )
-                                await channel.send(file=new_file)
-                            elif broadcast_message:
-                                await channel.send(broadcast_message)
-                        success_count += 1
-                    else:
-                        fail_count += 1
-                        failed_channels.append(f"Unknown Channel (ID: {channel_id})")
-                except Exception as e:
-                    logger.error(f"Error broadcasting to channel {channel_id}: {str(e)}")
-                    logger.error(traceback.format_exc())
+                        elif broadcast_message:
+                            await channel.send(broadcast_message)
+                    success_count += 1
+                else:
                     fail_count += 1
-                    if channel:
-                        failed_channels.append(f"{channel.guild.name} - #{channel.name}")
-                    else:
-                        failed_channels.append(f"Unknown Channel (ID: {channel_id})")
-            
-            result_message = f"Broadcast complete!\nSuccessfully sent: {success_count} channels\nFailed: {fail_count} channels"
-            if failed_channels:
-                result_message += "\n\nFailed channels:\n" + "\n".join(failed_channels)
-            
-            await interaction.followup.send(result_message)
-                
-        except Exception as e:
-            logger.error(f"Error in broadcast: {str(e)}")
-            logger.error(traceback.format_exc())
-            await interaction.followup.send("An error occurred while executing the command. Please try again later.")
+                    failed_channels.append(f"Unknown Channel (ID: {channel_id})")
+            except Exception:
+                logger.exception(f"Error broadcasting to channel {channel_id}")
+                fail_count += 1
+                if channel:
+                    failed_channels.append(f"{channel.guild.name} - #{channel.name}")
+                else:
+                    failed_channels.append(f"Unknown Channel (ID: {channel_id})")
+        
+        result_message = f"Broadcast complete!\nSuccessfully sent: {success_count} channels\nFailed: {fail_count} channels"
+        if failed_channels:
+            result_message += "\n\nFailed channels:\n" + "\n".join(failed_channels)
+        
+        await interaction.followup.send(result_message)
 
     @app_commands.command(name="broadcast_dm", description="Send a DM broadcast to specific users")
     @app_commands.checks.has_any_role(*settings.root_role_ids)
@@ -369,56 +337,60 @@ class Broadcast(commands.Cog):
             anonymous: gives an option to send the message anonymously
         """
         await interaction.response.defer(thinking=True)
-        try:
-            user_id_list = [uid.strip() for uid in user_ids.split(",")]
-            if not user_id_list:
-                await interaction.followup.send("Please provide at least one user ID.")
-                return
+        user_id_list = [uid.strip() for uid in user_ids.split(",")]
+        if not user_id_list:
+            await interaction.followup.send("Please provide at least one user ID.")
+            return
 
-            await interaction.followup.send("Starting DM broadcast...")
-            
-            success_count = 0
-            fail_count = 0
-            failed_users = []
-            
-            dm_message = (
-                "🔔 **System DM** 🔔\n"
-                "------------------------\n"
-                f"{message}\n"
-                "------------------------\n"
-            )
-            if not anonymous:
-                dm_message += f"*Sent by {interaction.user.name}*"
-            
-            for user_id in user_id_list:
-                try:
-                    user = await self.bot.fetch_user(int(user_id))
-                    if user:
-                        await user.send(dm_message)
-                        success_count += 1
-                    else:
-                        fail_count += 1
-                        failed_users.append(f"Unknown User (ID: {user_id})")
-                except discord.Forbidden:
-                    fail_count += 1
-                    failed_users.append(f"User ID: {user_id} (DMs Closed)")
-                except Exception as e:
-                    logger.error(f"Error sending DM to user {user_id}: {str(e)}")
-                    logger.error(traceback.format_exc())
-                    fail_count += 1
-                    failed_users.append(f"User ID: {user_id}")
-            
-            result_message = f"DM broadcast complete!\nSuccessfully sent: {success_count} users\nFailed: {fail_count} users"
-            if failed_users:
-                result_message += "\n\nFailed users:\n" + "\n".join(failed_users)
-            
-            await interaction.followup.send(result_message)
-                
-        except Exception as e:
-            logger.error(f"Error in broadcast_dm: {str(e)}")
-            logger.error(traceback.format_exc())
+        await interaction.followup.send("Starting DM broadcast...")
+        
+        success_count = 0
+        fail_count = 0
+        failed_users = []
+        
+        dm_message = (
+            "🔔 **System DM** 🔔\n"
+            "------------------------\n"
+            f"{message}\n"
+            "------------------------\n"
+        )
+        if not anonymous:
+            dm_message += f"*Sent by {interaction.user.name}*"
+        
+        for user_id in user_id_list:
             try:
-                await interaction.followup.send("An error occurred while executing the command. Please try again later.")
+                user = await self.bot.fetch_user(int(user_id))
+                if user:
+                    await user.send(dm_message)
+                    success_count += 1
+                else:
+                    fail_count += 1
+                    failed_users.append(f"Unknown User (ID: {user_id})")
+            except discord.Forbidden:
+                fail_count += 1
+                failed_users.append(f"User ID: {user_id} (DMs Closed)")
             except Exception:
-                pass 
+                logger.exception(f"Error sending DM to user {user_id}")
+                fail_count += 1
+                failed_users.append(f"User ID: {user_id}")
+        
+        result_message = f"DM broadcast complete!\nSuccessfully sent: {success_count} users\nFailed: {fail_count} users"
+        if failed_users:
+            result_message += "\n\nFailed users:\n" + "\n".join(failed_users)
+        
+        await interaction.followup.send(result_message)
+
+    async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        error = getattr(error, 'original', error)
+        
+        if isinstance(error, app_commands.MissingAnyRole):
+            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+            return
+
+        logger.exception(f"Error in command {interaction.command.name}", exc_info=error)
+        
+        if interaction.response.is_done():
+            await interaction.followup.send("An error occurred while executing the command. Please try again later.", ephemeral=True)
+        else:
+            await interaction.response.send_message("An error occurred while executing the command. Please try again later.", ephemeral=True) 
 
